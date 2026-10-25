@@ -282,6 +282,7 @@ impl MediaProgress {
                 pos: if *d { i as u64 + 1 } else { i as u64 },
                 end: i as u64 + 1,
                 speed: 0,
+                network: None,
                 status: if *d {
                     SegmentStatus::Done
                 } else if g.active.contains(&i) {

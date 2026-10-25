@@ -209,6 +209,9 @@ pub struct SegmentInfo {
     pub end: u64,
     pub speed: u64,
     pub state: String,
+    /// Adapter of the connection (multi-network downloads).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

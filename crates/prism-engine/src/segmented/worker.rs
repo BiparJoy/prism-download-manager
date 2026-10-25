@@ -202,6 +202,10 @@ impl<F: RangeFetcher> Worker<F> {
                 }
             };
             self.set_connected(true);
+            if !a.race {
+                let net = self.fetcher.network().map(|n| n.interface().to_string());
+                ctx.table.set_network(a.seg, self.id, net);
+            }
             // The server may have promised less than we asked for.
             let req_end = match (req_end, stream.range_end()) {
                 (Some(a), Some(b)) => Some(a.min(b)),
