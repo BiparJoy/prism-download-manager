@@ -1024,5 +1024,7 @@
   "{used} of {limit} used": "{used} de {limit} usados",
   "Downloads are paused until {date}": "Las descargas están en pausa hasta el {date}",
   "Resets on {date}": "Se reinicia el {date}",
-  "Reset": "Reiniciar"
+  "Reset": "Reiniciar",
+  "Network": "Red",
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Activa Usar varias redes en Ajustes › Redes para ver aquí la velocidad de cada red."
 }

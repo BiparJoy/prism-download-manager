@@ -1049,5 +1049,7 @@
   "{used} of {limit} used": "Využito {used} z {limit}",
   "Downloads are paused until {date}": "Stahování je pozastaveno do {date}",
   "Resets on {date}": "Obnoví se {date}",
-  "Reset": "Vynulovat"
+  "Reset": "Vynulovat",
+  "Network": "Síť",
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Zapněte Používat více sítí v Nastavení › Sítě a uvidíte zde rychlost každé sítě."
 }

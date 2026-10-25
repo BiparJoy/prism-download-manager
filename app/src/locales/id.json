@@ -977,5 +977,7 @@
   "{used} of {limit} used": "{used} dari {limit} terpakai",
   "Downloads are paused until {date}": "Unduhan dijeda hingga {date}",
   "Resets on {date}": "Diatur ulang pada {date}",
-  "Reset": "Atur ulang"
+  "Reset": "Atur ulang",
+  "Network": "Jaringan",
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Aktifkan Gunakan beberapa jaringan di Pengaturan › Jaringan untuk melihat kecepatan tiap jaringan di sini."
 }

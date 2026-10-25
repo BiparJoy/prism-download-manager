@@ -55,7 +55,7 @@ const LS = "prism.ui";
 
 interface Persisted {
   bottomOpen: boolean;
-  bottomTab: "connections" | "speed" | "info";
+  bottomTab: "connections" | "speed" | "info" | "network";
   bottomHeight: number;
   widths: Partial<Record<ColumnKey, number>>;
 }

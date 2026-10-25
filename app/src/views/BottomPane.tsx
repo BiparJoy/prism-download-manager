@@ -1,23 +1,26 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { IconButton } from "../components/IconButton";
 import { useItemDetails } from "../components/useItemDetails";
-import { ConnectionLanes, FileMap, SpeedChart } from "../components/Visuals";
+import { ConnectionLanes, FileMap, ProgressBar, SpeedChart } from "../components/Visuals";
 import { Icon } from "../design/icons";
 import { actions } from "../lib/actions";
+import { api } from "../lib/api";
 import { formatBytes, formatDate, formatDuration, formatSpeed } from "../lib/format";
 import { t, tk } from "../lib/i18n";
 import { fullPath } from "../lib/paths";
 import { progressOf, statusView } from "../lib/present";
 import { Ring } from "../lib/ring";
 import { useApp } from "../lib/store";
-import type { ItemDetails } from "../lib/types";
+import type { ItemDetails, SegmentInfo } from "../lib/types";
 import { useUi } from "../lib/ui";
 import { copyText } from "../lib/win";
+import { NETWORK_COLORS, usePolled } from "./sheets/SettingsSheet";
 
 const TABS = [
   { id: "connections", label: tk("Connections") },
   { id: "speed", label: tk("Speed") },
   { id: "info", label: tk("Info") },
+  { id: "network", label: tk("Network") },
 ] as const;
 
 /** Collapsible pane under the list showing the focused download (C-style engineering view). */
@@ -69,6 +72,8 @@ export function BottomPane() {
           <ConnectionsTab details={details} done={item.status === "completed"} />
         ) : tab === "speed" ? (
           <SpeedTab details={details} id={item.id} />
+        ) : tab === "network" ? (
+          <NetworkTab />
         ) : (
           <InfoTab id={item.id} />
         )}
@@ -89,8 +94,48 @@ function ConnectionsTab({ details, done }: { details: ItemDetails | null; done: 
         <FileMap segments={details.segments} size={size} unit={unit} />
         <span className="tnum">{t("{count} segments", { count: details.segments.length })}</span>
       </div>
-      <ConnectionLanes segments={details.segments} unit={unit} />
+      {details.segments.some((s) => s.network) ? <NetworkLanes segments={details.segments} /> : <ConnectionLanes segments={details.segments} unit={unit} />}
     </div>
+  );
+}
+
+/** This download's speed per network, with each connection coloured by the network it runs on. */
+function NetworkLanes({ segments }: { segments: SegmentInfo[] }) {
+  const [nets] = usePolled(api.networks, 2000);
+  const view = (iface: string) => {
+    const i = nets?.findIndex((n) => n.interface === iface) ?? -1;
+    const n = nets?.[i];
+    return { name: n?.name || iface, color: n?.color || NETWORK_COLORS[(i < 0 ? 0 : i) % NETWORK_COLORS.length] };
+  };
+  const active = segments.filter((s) => s.state === "active");
+  const groups = new Map<string, { speed: number; count: number }>();
+  for (const s of active) {
+    const g = groups.get(s.network ?? "") ?? { speed: 0, count: 0 };
+    groups.set(s.network ?? "", { speed: g.speed + s.speed, count: g.count + 1 });
+  }
+  const total = active.reduce((sum, s) => sum + s.speed, 0);
+  return (
+    <>
+      <div className="sstats">
+        {[...groups].map(([iface, g]) => {
+          const v = iface ? view(iface) : null;
+          return (
+            <div key={iface} className="sstat">
+              <div className="k ellipsis">
+                {v && <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, marginInlineEnd: 5, background: v.color }} />}
+                {v?.name ?? "—"} · {t("{count} conn", { count: g.count })}
+              </div>
+              <div className="v tnum">{formatSpeed(g.speed)}</div>
+            </div>
+          );
+        })}
+        <div className="sstat">
+          <div className="k">{t("Combined speed")}</div>
+          <div className="v tnum">{formatSpeed(total)}</div>
+        </div>
+      </div>
+      <ConnectionLanes segments={segments} colorOf={(s) => (s.network ? view(s.network).color : undefined)} />
+    </>
   );
 }
 
@@ -132,6 +177,39 @@ const Stat = ({ k, v }: { k: string; v: ReactNode }) => (
     <div className="v tnum">{v}</div>
   </div>
 );
+
+/** Speed over each network the downloads use (all downloads, as the engine counts per network). */
+function NetworkTab() {
+  const on = useApp((s) => s.settings?.networks.enabled);
+  const [nets] = usePolled(api.networks, 1000);
+  const used = (nets ?? []).filter((n) => n.enabled);
+  if (!on || !nets || used.length === 0) return <p className="pane__hint">{t("Turn on Use multiple networks in Settings › Networks to see the speed of each network here.")}</p>;
+  const total = used.reduce((sum, n) => sum + n.speed, 0);
+  return (
+    <dl className="kv">
+      {used.map((n) => {
+        const color = n.color || NETWORK_COLORS[nets.indexOf(n) % NETWORK_COLORS.length];
+        const state = !n.present ? t("Not connected") : n.failing ? t("No internet on this network?") : `${formatSpeed(n.speed)} · ${t("{count} connections", { count: n.connections })} · ${formatBytes(n.received)}`;
+        return (
+          <div key={n.interface} className="kv__row">
+            <dt>
+              <span aria-hidden style={{ display: "inline-block", width: 10, height: 10, borderRadius: 5, marginInlineEnd: 6, background: color, opacity: n.present ? 1 : 0.4 }} />
+              {n.name}
+            </dt>
+            <dd>
+              <span className="tnum">{state}</span>
+              <ProgressBar value={total ? n.speed / total : 0} state="active" size="thin" label={n.name} />
+            </dd>
+          </div>
+        );
+      })}
+      <div className="kv__row">
+        <dt>{t("Combined speed")}</dt>
+        <dd className="tnum">{formatSpeed(total)}</dd>
+      </div>
+    </dl>
+  );
+}
 
 function InfoTab({ id }: { id: string }) {
   const item = useApp((s) => s.items[id]);
