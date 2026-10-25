@@ -6,6 +6,7 @@ use std::time::Duration;
 use reqwest::redirect::Policy;
 
 use crate::error::EngineError;
+use crate::network::Network;
 use crate::request::{HttpPreference, ProxyConfig};
 
 /// Maximum redirects followed.
@@ -73,6 +74,14 @@ fn proxy_url(
 /// concurrent request, which — with one client per worker — means one socket per worker,
 /// reused across that worker's sequential range requests.
 pub(crate) fn build_client(spec: &ClientSpec) -> Result<reqwest::Client, EngineError> {
+    build_client_on(spec, None)
+}
+
+/// Like [`build_client`], with every connection pinned to `network` (see [`crate::network`]).
+pub(crate) fn build_client_on(
+    spec: &ClientSpec,
+    network: Option<&Network>,
+) -> Result<reqwest::Client, EngineError> {
     let mut tls = spec.tls.clone();
     tls.alpn_protocols = match spec.http {
         HttpPreference::Http1Only => vec![b"http/1.1".to_vec()],
@@ -134,8 +143,31 @@ pub(crate) fn build_client(spec: &ClientSpec) -> Result<reqwest::Client, EngineE
             })?,
         ),
     };
+    if let Some(n) = network {
+        b = bind_to_network(b, n);
+    }
     b.build()
         .map_err(|e| EngineError::network(format!("cannot create HTTP client: {e}")))
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn bind_to_network(b: reqwest::ClientBuilder, n: &Network) -> reqwest::ClientBuilder {
+    // Bound to the adapter itself; DNS answers of both families work.
+    b.interface(n.interface())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn bind_to_network(b: reqwest::ClientBuilder, n: &Network) -> reqwest::ClientBuilder {
+    // Routed by source address: bind it and only connect to addresses of its family.
+    match n.local_addr() {
+        Some(addr) => {
+            b.local_address(addr)
+                .dns_resolver(Arc::new(crate::network::FamilyResolver {
+                    v4: addr.is_ipv4(),
+                }))
+        }
+        None => b,
+    }
 }
 
 #[cfg(test)]
