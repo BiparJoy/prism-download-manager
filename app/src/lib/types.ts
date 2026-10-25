@@ -70,6 +70,8 @@ export interface SegmentInfo {
   end: number;
   speed: number;
   state: string;
+  /** Adapter of the connection when downloading over several networks. */
+  network?: string;
 }
 
 export interface ItemDetails {

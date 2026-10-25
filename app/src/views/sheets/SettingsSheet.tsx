@@ -518,10 +518,10 @@ function SpeedQueues({ s }: { s: Settings }) {
 }
 
 // Colours for networks without one of their own, in list order.
-const NETWORK_COLORS = ["#7c6cff", "#3dd68c", "#f5b544", "#4cc9f0", "#ff6b9a", "#a3e635"];
+export const NETWORK_COLORS = ["#7c6cff", "#3dd68c", "#f5b544", "#4cc9f0", "#ff6b9a", "#a3e635"];
 
 /** Polls `load` every `ms` while mounted. */
-function usePolled<T>(load: () => Promise<T>, ms: number): [T | null, (v: T) => void] {
+export function usePolled<T>(load: () => Promise<T>, ms: number): [T | null, (v: T) => void] {
   const [value, setValue] = useState<T | null>(null);
   useEffect(() => {
     let live = true;

@@ -1082,5 +1082,7 @@
   "per month": "al mese",
   "{used} of {limit} used": "{used} usati su {limit}",
   "Downloads are paused until {date}": "Download in pausa fino al {date}",
-  "Resets on {date}": "Si azzera il {date}"
+  "Resets on {date}": "Si azzera il {date}",
+  "Network": "Rete",
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Attiva Usa più reti in Impostazioni › Reti per vedere qui la velocità di ogni rete."
 }

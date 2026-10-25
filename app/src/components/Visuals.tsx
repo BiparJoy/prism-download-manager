@@ -136,7 +136,7 @@ export function FileMap({ segments, size, unit = "bytes" }: { segments: SegmentI
 
 /** One lane per connection — the segments actually being transferred right now, never the
  *  whole (for HLS/DASH, hundreds-strong) segment list. */
-export function ConnectionLanes({ segments, max, unit = "bytes" }: { segments: SegmentInfo[]; max?: number; unit?: "bytes" | "segments" }) {
+export function ConnectionLanes({ segments, max, unit = "bytes", colorOf }: { segments: SegmentInfo[]; max?: number; unit?: "bytes" | "segments"; colorOf?: (s: SegmentInfo) => string | undefined }) {
   const active = segments.filter((s) => s.state === "active");
   const shown = max ? active.slice(0, max) : active;
   if (!active.length) return <p className="lanes__empty">{t("No active connections.")}</p>;
@@ -146,7 +146,7 @@ export function ConnectionLanes({ segments, max, unit = "bytes" }: { segments: S
         const span = Math.max(1, s.end - s.start);
         const f = Math.min(1, (s.pos - s.start) / span);
         return (
-          <div key={i} className="lane" style={{ ["--c" as string]: spectrum(i) }}>
+          <div key={i} className="lane" style={{ ["--c" as string]: colorOf?.(s) ?? spectrum(i) }}>
             <span className="lane__id">{String(i + 1).padStart(2, "0")}</span>
             <span className="lane__track">
               <span className="lane__fill" style={{ transform: `scaleX(${f})` }} />
