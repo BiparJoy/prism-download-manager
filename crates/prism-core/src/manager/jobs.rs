@@ -193,6 +193,7 @@ fn segment_info(s: &prism_engine::SegmentView) -> SegmentInfo {
         pos: s.pos,
         end: s.end,
         speed: s.speed,
+        network: s.network.clone(),
         state: match s.status {
             SegmentStatus::Active => "active",
             SegmentStatus::Idle => "idle",
@@ -221,6 +222,7 @@ pub(crate) fn stored_segments(item: &DownloadItem) -> Vec<SegmentInfo> {
             pos: s.pos,
             end: s.end,
             speed: 0,
+            network: None,
             state: if s.pos >= s.end { "done" } else { "idle" }.into(),
         })
         .collect()
