@@ -439,11 +439,14 @@ mod tests {
     async fn family_resolver_drops_unreachable_families() {
         use reqwest::dns::Resolve;
         let name: reqwest::dns::Name = "localhost".parse().unwrap();
-        let only_v4: Vec<_> = FamilyResolver { v4: true, v6: false }
-            .resolve(name)
-            .await
-            .unwrap()
-            .collect();
+        let only_v4: Vec<_> = FamilyResolver {
+            v4: true,
+            v6: false,
+        }
+        .resolve(name)
+        .await
+        .unwrap()
+        .collect();
         assert!(!only_v4.is_empty() && only_v4.iter().all(|a| a.is_ipv4()));
     }
 
