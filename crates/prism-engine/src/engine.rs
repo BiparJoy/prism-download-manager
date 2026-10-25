@@ -10,6 +10,7 @@ use crate::error::EngineError;
 use crate::hostlimits::{HostLimit, HostLimits};
 use crate::job::{DownloadHandle, JobShared};
 use crate::limiter::RateLimiter;
+use crate::network::NetworkSet;
 use crate::progress::ProbeInfo;
 use crate::request::{DownloadRequest, MediaRequest};
 use crate::resume::{ResumeKind, ResumeState};
@@ -22,6 +23,8 @@ pub(crate) struct EngineInner {
     update: Mutex<()>,
     pub global: Arc<RateLimiter>,
     pub host_limits: Arc<HostLimits>,
+    /// Networks HTTP connections are spread over (empty = default route).
+    pub networks: Arc<NetworkSet>,
     /// Engine-wide budget for received-but-unwritten bytes.
     pub budget: Arc<Semaphore>,
     /// Permits the budget semaphore currently represents.
@@ -105,6 +108,7 @@ impl Engine {
                     config.max_connections_per_host,
                     config.host_limit_ttl,
                 )),
+                networks: Arc::new(NetworkSet::default()),
                 budget: Arc::new(Semaphore::new(config.memory_budget)),
                 budget_total: AtomicUsize::new(config.memory_budget),
                 tls: OnceLock::new(),
@@ -147,6 +151,13 @@ impl Engine {
     /// [`RateLimiter::set_rate`]).
     pub fn global_limiter(&self) -> Arc<RateLimiter> {
         self.inner.global.clone()
+    }
+
+    /// The networks HTTP(S) connections are spread over. Configure it with
+    /// [`NetworkSet::configure`]; empty means the operating system's default route. Changes
+    /// apply to new connections, including those of running downloads.
+    pub fn networks(&self) -> Arc<NetworkSet> {
+        self.inner.networks.clone()
     }
 
     /// Learned per-host connection limits (persist them to start below a server's limit next

@@ -122,6 +122,10 @@ impl<F: RangeFetcher> Worker<F> {
                     if ctx.try_retire() {
                         return WorkerExit::Retired;
                     }
+                    // Its network was switched off: a replacement connection goes elsewhere.
+                    if self.fetcher.network().is_some_and(|n| !n.is_enabled()) {
+                        return WorkerExit::Idle;
+                    }
                     match ctx
                         .table
                         .acquire(self.id, self.allow_race && !any_limited(&ctx.limiters))
@@ -213,6 +217,10 @@ impl<F: RangeFetcher> Worker<F> {
                         self.release(current, false);
                         return WorkerExit::Retired;
                     }
+                    if self.fetcher.network().is_some_and(|n| !n.is_enabled()) {
+                        self.release(current, false);
+                        return WorkerExit::Idle;
+                    }
                 }
                 Ok(Pump::Reopen) => {}
                 Ok(Pump::Stopped) => {
@@ -254,6 +262,16 @@ impl<F: RangeFetcher> Worker<F> {
             FailKind::Fatal => {
                 self.release(Some(a), false);
                 return Some(WorkerExit::Fatal(e.error));
+            }
+            // On a pinned network, failing to connect says more about that network than about
+            // a server connection limit: stop this connection once the network is benched so a
+            // replacement goes over another one.
+            FailKind::MaybeRefused if self.fetcher.network().is_some() => {
+                if self.fetcher.network().is_some_and(|n| n.is_failing()) {
+                    self.set_connected(false);
+                    self.release(Some(a), false);
+                    return Some(WorkerExit::GaveUp(e.error));
+                }
             }
             FailKind::Refused | FailKind::MaybeRefused => {
                 let others = ctx
@@ -385,6 +403,14 @@ impl<F: RangeFetcher> Worker<F> {
                 biased;
                 _ = ctx.stop.cancelled() => return Ok(Pump::Stopped),
                 _ = acquire_all(&ctx.limiters, len) => {}
+            }
+            if let Some(n) = self.fetcher.network() {
+                tokio::select! {
+                    biased;
+                    _ = ctx.stop.cancelled() => return Ok(Pump::Stopped),
+                    _ = n.limiter().acquire(len) => {}
+                }
+                n.add_received(len);
             }
             let permit = tokio::select! {
                 biased;

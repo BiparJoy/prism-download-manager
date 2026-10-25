@@ -9,13 +9,14 @@ use reqwest::header::{self, HeaderValue};
 use url::Url;
 
 use super::auth::ChallengeAction;
-use super::client::build_client;
+use super::client::build_client_on;
 use super::{
     HttpCtx, SourceRef, Validators, header_string, parse_content_range, parse_unsatisfied_range,
     retry_after, strong_etag,
 };
 use crate::error::EngineError;
 use crate::filename;
+use crate::network::{Network, NetworkLease};
 use crate::progress::ProbeInfo;
 use crate::request::HttpMethod;
 use crate::segmented::table::WorkerId;
@@ -66,6 +67,8 @@ pub(crate) struct HttpFetcher {
     ctx: Arc<HttpCtx>,
     worker: WorkerId,
     client: Result<reqwest::Client, EngineError>,
+    /// The network this worker's connection is pinned to (`None` = default route).
+    lease: Option<NetworkLease>,
     /// The NTLM handshake succeeded on the current connection.
     ntlm_ready: bool,
 }
@@ -125,11 +128,13 @@ fn status_error(status: u16) -> EngineError {
 
 impl HttpFetcher {
     pub(crate) fn new(ctx: Arc<HttpCtx>, worker: WorkerId) -> Self {
-        let client = build_client(&ctx.spec);
+        let lease = ctx.networks.lease();
+        let client = build_client_on(&ctx.spec, lease.as_ref().map(|l| &**l.network()));
         Self {
             ctx,
             worker,
             client,
+            lease,
             ntlm_ready: false,
         }
     }
@@ -173,6 +178,45 @@ impl HttpFetcher {
     /// Sends one request, transparently answering Basic/Digest challenges and running the
     /// NTLM handshake. A remaining `401` is returned to the caller.
     pub(crate) async fn send(
+        &mut self,
+        url: &Url,
+        range: Option<(u64, Option<u64>)>,
+        if_range: Option<&str>,
+    ) -> Result<reqwest::Response, FetchError> {
+        self.move_off_unusable_network();
+        let r = self.send_inner(url, range, if_range).await;
+        if let Some(l) = &self.lease {
+            match &r {
+                Ok(_) => l.network().on_success(),
+                Err(e) if e.kind != FailKind::Fatal => l.network().on_failure(),
+                Err(_) => {}
+            }
+        }
+        r
+    }
+
+    /// Moves this connection to another network when its own one was switched off or keeps
+    /// failing (the probe retries on one fetcher, so it must not stay on a dead network).
+    fn move_off_unusable_network(&mut self) {
+        let Some(current) = self.lease.as_ref().map(|l| l.network().clone()) else {
+            return;
+        };
+        if current.is_enabled() && !current.is_failing() {
+            return;
+        }
+        let next = self.ctx.networks.lease();
+        if next
+            .as_ref()
+            .is_some_and(|n| Arc::ptr_eq(n.network(), &current))
+        {
+            return;
+        }
+        self.client = build_client_on(&self.ctx.spec, next.as_ref().map(|l| &**l.network()));
+        self.lease = next;
+        self.ntlm_ready = false;
+    }
+
+    async fn send_inner(
         &mut self,
         url: &Url,
         range: Option<(u64, Option<u64>)>,
@@ -556,6 +600,10 @@ impl RangeFetcher for HttpFetcher {
 
     fn bounded(&self) -> bool {
         self.ctx.validators().ranged
+    }
+
+    fn network(&self) -> Option<&Arc<Network>> {
+        self.lease.as_ref().map(NetworkLease::network)
     }
 }
 

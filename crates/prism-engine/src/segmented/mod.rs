@@ -21,6 +21,7 @@ use crate::error::EngineError;
 use crate::hostlimits::{HostLimits, HostPermit};
 use crate::job::JobShared;
 use crate::limiter::RateLimiter;
+use crate::network::Network;
 use table::{Assignment, SegmentTable, WorkerId};
 use writer::Writer;
 
@@ -106,6 +107,10 @@ pub(crate) trait RangeFetcher: Send + 'static {
     /// Whether streams end exactly at the requested `to` (HTTP ranges) so the connection can
     /// be reused for the next range.
     fn bounded(&self) -> bool;
+    /// The network this connection is pinned to, if any (multi-network downloads).
+    fn network(&self) -> Option<&Arc<Network>> {
+        None
+    }
 }
 
 /// Creates per-worker fetchers.

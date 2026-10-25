@@ -14,6 +14,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use url::Url;
 
 use crate::error::EngineError;
+use crate::network::NetworkSet;
 use crate::request::HttpMethod;
 use crate::segmented::table::WorkerId;
 use auth::AuthState;
@@ -193,6 +194,8 @@ pub(crate) struct HttpCtx {
     /// See [`crate::DownloadRequest::expect_file`].
     pub expect_file: bool,
     pub source_generation: Arc<AtomicU64>,
+    /// Networks the workers' connections are spread over.
+    pub networks: Arc<NetworkSet>,
 }
 
 impl HttpCtx {
