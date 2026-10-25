@@ -7,7 +7,7 @@
 //!
 //! Pinning a socket to an adapter:
 //! * Linux and macOS bind the socket to the interface itself (`SO_BINDTODEVICE` /
-//!   `IP_BOUND_IF`). On Linux, binding only to the adapter's IP would still send packets out the
+//!   `IP_BOUND_IF`) and drop DNS answers of a family the adapter has no address for. On Linux, binding only to the adapter's IP would still send packets out the
 //!   default route, where the network that does not own that IP drops them.
 //! * Windows routes by source address, so the socket is bound to the adapter's IPv4 address
 //!   (or IPv6 when it has no IPv4) and DNS answers are filtered to that address family.
@@ -47,6 +47,15 @@ impl NetworkInterface {
             .find(|a| a.is_ipv4())
             .or_else(|| self.addrs.first())
             .copied()
+    }
+
+    /// Whether it has an IPv4 / IPv6 address (DNS answers of a missing family can't be
+    /// reached through it).
+    pub fn families(&self) -> (bool, bool) {
+        (
+            self.addrs.iter().any(IpAddr::is_ipv4),
+            self.addrs.iter().any(IpAddr::is_ipv6),
+        )
     }
 }
 
@@ -117,6 +126,8 @@ pub struct Network {
     interface: String,
     /// Source address (Windows) / fallback when the adapter disappears from the list.
     local_addr: RwLock<Option<IpAddr>>,
+    /// The adapter has an IPv4 / IPv6 address.
+    families: RwLock<(bool, bool)>,
     enabled: AtomicBool,
     limiter: Arc<RateLimiter>,
     received: AtomicU64,
@@ -126,10 +137,11 @@ pub struct Network {
 }
 
 impl Network {
-    fn new(spec: &NetworkSpec, local_addr: Option<IpAddr>) -> Self {
+    fn new(spec: &NetworkSpec, present: Option<&NetworkInterface>) -> Self {
         Self {
             interface: spec.interface.clone(),
-            local_addr: RwLock::new(local_addr),
+            local_addr: RwLock::new(present.and_then(NetworkInterface::preferred_addr)),
+            families: RwLock::new(present.map_or((false, false), NetworkInterface::families)),
             enabled: AtomicBool::new(spec.enabled),
             limiter: Arc::new(RateLimiter::new(spec.speed_limit)),
             received: AtomicU64::new(0),
@@ -147,6 +159,18 @@ impl Network {
     /// The source address used for binding (see the module docs).
     pub fn local_addr(&self) -> Option<IpAddr> {
         *self.local_addr.read().expect("network lock")
+    }
+
+    /// Whether the adapter has an IPv4 / IPv6 address.
+    pub fn families(&self) -> (bool, bool) {
+        *self.families.read().expect("network lock")
+    }
+
+    fn set_present(&self, present: Option<&NetworkInterface>) {
+        *self.local_addr.write().expect("network lock") =
+            present.and_then(NetworkInterface::preferred_addr);
+        *self.families.write().expect("network lock") =
+            present.map_or((false, false), NetworkInterface::families);
     }
 
     /// Whether new connections may use this network.
@@ -262,18 +286,15 @@ impl NetworkSet {
             {
                 continue;
             }
-            let addr = present
-                .iter()
-                .find(|i| i.name == spec.interface)
-                .and_then(NetworkInterface::preferred_addr);
+            let iface = present.iter().find(|i| i.name == spec.interface);
             let net = match g.iter().find(|n| n.interface == spec.interface) {
                 Some(n) => {
                     n.enabled.store(spec.enabled, Ordering::Release);
                     n.limiter.set_rate(spec.speed_limit);
-                    *n.local_addr.write().expect("network lock") = addr;
+                    n.set_present(iface);
                     n.clone()
                 }
-                None => Arc::new(Network::new(spec, addr)),
+                None => Arc::new(Network::new(spec, iface)),
             };
             next.push(net);
         }
@@ -284,11 +305,7 @@ impl NetworkSet {
     pub fn refresh(&self) {
         let present = interfaces(true);
         for n in self.networks.read().expect("networks lock").iter() {
-            let addr = present
-                .iter()
-                .find(|i| i.name == n.interface)
-                .and_then(NetworkInterface::preferred_addr);
-            *n.local_addr.write().expect("network lock") = addr;
+            n.set_present(present.iter().find(|i| i.name == n.interface));
         }
     }
 
@@ -372,23 +389,23 @@ impl NetworkSet {
     }
 }
 
-/// DNS resolver that keeps only addresses of one family (Windows: a socket bound to an IPv4
-/// source cannot reach an IPv6 destination through that adapter).
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// DNS resolver that keeps only addresses of the families a network can reach: an adapter
+/// without an IPv6 address (common for Ethernet next to an IPv6 phone tether) cannot connect
+/// to a server's IPv6 address, and Windows binds an IPv4 source that can't reach IPv6 either.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FamilyResolver {
     pub v4: bool,
+    pub v6: bool,
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 impl reqwest::dns::Resolve for FamilyResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
-        let v4 = self.v4;
+        let FamilyResolver { v4, v6 } = *self;
         Box::pin(async move {
             let host = format!("{}:0", name.as_str());
             let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(host)
                 .await?
-                .filter(|a| a.is_ipv4() == v4)
+                .filter(|a| if a.is_ipv4() { v4 } else { v6 })
                 .collect();
             if addrs.is_empty() {
                 return Err(format!(
@@ -406,6 +423,29 @@ impl reqwest::dns::Resolve for FamilyResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn families_follow_the_adapter_addresses() {
+        let i = |a: &[&str]| NetworkInterface {
+            name: "eth0".into(),
+            addrs: a.iter().map(|s| s.parse().unwrap()).collect(),
+        };
+        assert_eq!(i(&["192.168.1.3"]).families(), (true, false));
+        assert_eq!(i(&["10.0.0.2", "2409:40c4::1"]).families(), (true, true));
+        assert_eq!(i(&["2409:40c4::1"]).families(), (false, true));
+    }
+
+    #[tokio::test]
+    async fn family_resolver_drops_unreachable_families() {
+        use reqwest::dns::Resolve;
+        let name: reqwest::dns::Name = "localhost".parse().unwrap();
+        let only_v4: Vec<_> = FamilyResolver { v4: true, v6: false }
+            .resolve(name)
+            .await
+            .unwrap()
+            .collect();
+        assert!(!only_v4.is_empty() && only_v4.iter().all(|a| a.is_ipv4()));
+    }
 
     fn spec(name: &str) -> NetworkSpec {
         NetworkSpec {
