@@ -50,6 +50,23 @@ fn without_browser_cookies(opts: &VideoOptions, err: &VideoError) -> VideoOption
     }
 }
 
+/// The context for a retry after YouTube rejected the page's cookies: public videos need none,
+/// and a signed-in browser's session often doesn't match what yt-dlp sends with it.
+fn without_page_cookies(
+    url: &str,
+    ctx: &RequestContext,
+    err: &VideoError,
+) -> Option<RequestContext> {
+    if ctx.cookies.is_none() || !probe::is_youtube(url) || !err.is_rejected_youtube_session() {
+        return None;
+    }
+    tracing::warn!("{err}; trying again without the page's cookies");
+    Some(RequestContext {
+        cookies: None,
+        ..ctx.clone()
+    })
+}
+
 struct Inner {
     tools_dir: PathBuf,
     opts: RwLock<VideoOptions>,
@@ -259,6 +276,16 @@ impl VideoService {
     /// `yt-dlp -J` the URL. Playlists/channels (or `list=` URLs with
     /// `ctx.want_playlist`) are listed flat.
     pub async fn probe(&self, url: &str, ctx: &RequestContext) -> Result<Probe> {
+        match self.probe_opts(url, ctx).await {
+            Err(e) => match without_page_cookies(url, ctx, &e) {
+                Some(clean) => self.probe_opts(url, &clean).await,
+                None => Err(e),
+            },
+            r => r,
+        }
+    }
+
+    async fn probe_opts(&self, url: &str, ctx: &RequestContext) -> Result<Probe> {
         let opts = self.options();
         match self.probe_with(url, ctx, &opts).await {
             Err(e) if e.is_cookie_read_failure() && opts.cookies_from_browser.is_some() => self
@@ -385,6 +412,27 @@ impl VideoService {
         progress: UnboundedSender<YtProgress>,
         cancel: CancellationToken,
     ) -> Result<PathBuf> {
+        match self.run_ytdlp_opts(job, progress.clone(), cancel.clone()).await {
+            Err(e) => match without_page_cookies(&job.url, &job.context, &e) {
+                Some(context) => {
+                    let job = YtDlpJob {
+                        context,
+                        ..job.clone()
+                    };
+                    self.run_ytdlp_opts(&job, progress, cancel).await
+                }
+                None => Err(e),
+            },
+            r => r,
+        }
+    }
+
+    async fn run_ytdlp_opts(
+        &self,
+        job: &YtDlpJob,
+        progress: UnboundedSender<YtProgress>,
+        cancel: CancellationToken,
+    ) -> Result<PathBuf> {
         let opts = self.options();
         match self
             .run_ytdlp_with(job, progress.clone(), cancel.clone(), &opts)
@@ -427,5 +475,37 @@ impl VideoService {
         let ffmpeg = self.require(Tool::Ffmpeg)?;
         let client = tools::http_client(&self.options(), true)?;
         ffmpeg::postprocess(&ffmpeg, &client, job, progress.as_ref(), &cancel).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failed(message: &str) -> VideoError {
+        VideoError::ToolFailed {
+            tool: Tool::YtDlp,
+            code: Some(1),
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn rejected_youtube_session_retries_without_page_cookies() {
+        let ctx = RequestContext {
+            cookies: Some("SID=x".into()),
+            referer: Some("https://www.youtube.com/".into()),
+            ..Default::default()
+        };
+        let yt = "https://www.youtube.com/watch?v=xvT1jH8B9AM";
+        let reload = failed("[youtube] xvT1jH8B9AM: The page needs to be reloaded.");
+        let clean = without_page_cookies(yt, &ctx, &reload).unwrap();
+        assert_eq!(clean.cookies, None);
+        assert_eq!(clean.referer, ctx.referer);
+        // Other sites, other errors and cookie-less contexts keep the first error.
+        assert!(without_page_cookies("https://vimeo.com/1", &ctx, &reload).is_none());
+        assert!(without_page_cookies(yt, &ctx, &failed("Video unavailable")).is_none());
+        assert!(without_page_cookies(yt, &RequestContext::default(), &reload).is_none());
+        assert!(without_page_cookies(yt, &ctx, &VideoError::Cancelled).is_none());
     }
 }

@@ -70,6 +70,17 @@ impl VideoError {
         matches!(self, VideoError::ToolFailed { tool: Tool::YtDlp, message, .. } if cookie_read_failure(message))
     }
 
+    /// YouTube rejected the browser session the extension passed along (out-of-sync or
+    /// rotated account cookies); the same video works without them.
+    pub fn is_rejected_youtube_session(&self) -> bool {
+        matches!(self, VideoError::ToolFailed { tool: Tool::YtDlp, message, .. } if {
+            let m = message.to_ascii_lowercase();
+            m.contains("the page needs to be reloaded")
+                || m.contains("requested format is not available")
+                || m.contains("cookies are no longer valid")
+        })
+    }
+
     /// This error came from the retry without browser cookies after `first` (a cookie read
     /// failure): keep both, so the message explains why the cookies were missing.
     pub fn after_cookie_read_failure(self, first: &VideoError) -> VideoError {
