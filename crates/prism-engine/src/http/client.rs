@@ -152,8 +152,12 @@ pub(crate) fn build_client_on(
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn bind_to_network(b: reqwest::ClientBuilder, n: &Network) -> reqwest::ClientBuilder {
-    // Bound to the adapter itself; DNS answers of both families work.
-    b.interface(n.interface())
+    // Bound to the adapter itself; only connect to address families it has.
+    let b = b.interface(n.interface());
+    match n.families() {
+        (true, true) | (false, false) => b,
+        (v4, v6) => b.dns_resolver(Arc::new(crate::network::FamilyResolver { v4, v6 })),
+    }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -164,6 +168,7 @@ fn bind_to_network(b: reqwest::ClientBuilder, n: &Network) -> reqwest::ClientBui
             b.local_address(addr)
                 .dns_resolver(Arc::new(crate::network::FamilyResolver {
                     v4: addr.is_ipv4(),
+                    v6: addr.is_ipv6(),
                 }))
         }
         None => b,
