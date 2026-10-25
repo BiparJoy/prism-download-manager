@@ -1382,3 +1382,77 @@ async fn a_hugging_face_model_downloads_into_its_queue() {
     .await;
     core.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn data_allowance_pauses_downloads_and_blocks_new_ones() {
+    let server = TestServer::start(ServerConfig::default()).await.unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    core.update_settings(&serde_json::json!({
+        "dataAllowance": {"enabled": true, "period": "daily", "limit": 2 << 20},
+    }))
+    .unwrap();
+    let size = 32u64 << 20;
+    let url = server.url(&format!("/file/cap.bin?size={size}&seed=41&throttle=1M"));
+    let items = core
+        .add_items(
+            vec![NewItem {
+                url,
+                ..Default::default()
+            }],
+            StartMode::Now,
+        )
+        .unwrap();
+    let id = &items[0].id;
+    let item = wait_paused(&core, id).await;
+    assert!(item.downloaded < size);
+    assert!(
+        item.error.as_deref().unwrap_or("").contains("allowance"),
+        "error: {:?}",
+        item.error
+    );
+    let usage = core.data_usage();
+    assert!(usage.exhausted);
+    assert!(usage.used >= 2 << 20);
+
+    // Starting again is refused while the allowance is used up...
+    core.start_items(std::slice::from_ref(id));
+    assert_eq!(core.item(id).unwrap().status, Status::Paused);
+    // ...and works after a reset.
+    assert!(!core.reset_data_usage().exhausted);
+    core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
+        .unwrap();
+    let mut rx = core.subscribe();
+    core.start_items(std::slice::from_ref(id));
+    let path = wait_completed(&mut rx, id).await;
+    assert_eq!(sha256_file(&path), expected_sha256(41, size));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn network_settings_reach_the_engine() {
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    assert!(
+        core.networks().iter().all(|n| n.connections == 0),
+        "nothing running yet"
+    );
+    let views = core
+        .update_network(prism_core::settings::NetworkEntry {
+            interface: "phone0".into(),
+            name: "My phone".into(),
+            color: "#ff8800".into(),
+            enabled: true,
+            speed_limit: 1 << 20,
+        })
+        .unwrap();
+    let phone = views.iter().find(|n| n.interface == "phone0").unwrap();
+    assert_eq!(phone.name, "My phone");
+    assert!(!phone.present);
+    // Multi-network is off until switched on, so the engine has nothing configured.
+    assert!(core.networks().iter().all(|n| n.received == 0));
+    core.update_settings(&serde_json::json!({"networks": {"enabled": true}}))
+        .unwrap();
+    let s = core.settings();
+    assert!(s.networks.enabled);
+    assert_eq!(s.networks.entries.len(), 1, "entries survive the patch");
+}

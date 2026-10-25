@@ -9,6 +9,7 @@
 mod capture;
 mod grab;
 mod jobs;
+mod networks;
 mod queues;
 
 pub use capture::{
@@ -17,6 +18,7 @@ pub use capture::{
 };
 pub use jobs::ItemDetails;
 pub(crate) use jobs::{engine_config, http_preference, proxy_config};
+pub use networks::{DataUsageView, NetworkView};
 
 use crate::categories;
 use crate::db::Db;
@@ -133,6 +135,10 @@ pub(crate) struct Inner {
     /// `extension-version` (version, then install type on a second line).
     pub ext_version: Mutex<Option<String>>,
     pub ext_install_type: Mutex<Option<String>>,
+    /// Per-network speed meters for the Networks panel.
+    pub(crate) net_meters: Mutex<networks::NetMeters>,
+    /// Bytes downloaded in the current data-allowance period.
+    pub data_usage: Mutex<crate::networks::DataUsage>,
 }
 
 /// Cheap, cloneable handle to the application core.
@@ -198,6 +204,7 @@ impl Core {
         let (ext_version, ext_install_type) =
             (ext_seen.next().flatten(), ext_seen.next().flatten());
 
+        let data_usage = Core::load_data_usage(&db, settings.data_allowance.period);
         let state = State {
             settings,
             items,
@@ -238,6 +245,8 @@ impl Core {
             probe_locks: Mutex::new(HashMap::new()),
             ext_version: Mutex::new(ext_version),
             ext_install_type: Mutex::new(ext_install_type),
+            net_meters: Mutex::new(Default::default()),
+            data_usage: Mutex::new(data_usage),
         }));
         core.apply_runtime_settings();
         core.spawn_background(outcome_rx);
@@ -393,6 +402,7 @@ impl Core {
         };
         self.0.engine.global_limiter().set_rate(global);
         self.apply_engine_config();
+        self.apply_networks();
         self.0.video.set_options(jobs::video_options(&s));
         if let Some(t) = self.0.torrent.get() {
             t.set_limits(global, global);
@@ -565,6 +575,14 @@ impl Core {
                 .ok_or_else(|| anyhow!("unknown item"))?
         };
         if item.trashed || item.status == Status::Completed {
+            return Ok(());
+        }
+        if self.allowance_exhausted() {
+            let resets = self.data_usage().resets_on;
+            self.with_item(id, |i| {
+                i.status = Status::Paused;
+                i.error = Some(format!("Data allowance used up, resets on {resets}"));
+            });
             return Ok(());
         }
         self.with_item(id, |i| {
@@ -817,6 +835,7 @@ impl Core {
                 tick.tick().await;
                 n += 1;
                 core.progress_tick(n.is_multiple_of(2));
+                core.sample_networks(0.25);
             }
         });
         // Checkpoints every 2 s.
@@ -826,6 +845,9 @@ impl Core {
             loop {
                 tick.tick().await;
                 core.checkpoint().await;
+                // Adapters come and go (sleep, Wi-Fi changes, a phone plugged in).
+                core.apply_networks();
+                core.save_data_usage();
             }
         });
         // Queue admission and schedules every second.
@@ -840,6 +862,7 @@ impl Core {
     }
 
     fn progress_tick(&self, sample_history: bool) {
+        let mut downloaded_now = 0u64;
         let progress: Vec<Progress> = {
             let mut st = self.0.state.lock();
             let mut out = Vec::new();
@@ -849,6 +872,7 @@ impl Core {
                     continue;
                 };
                 let p = st.jobs[&id].progress(&item);
+                downloaded_now += p.downloaded.saturating_sub(item.downloaded);
                 if sample_history {
                     let h = st.speed_history.entry(id.clone()).or_default();
                     h.push_back(p.speed);
@@ -873,6 +897,7 @@ impl Core {
         if !progress.is_empty() {
             self.emit(CoreEvent::Progress(progress));
         }
+        self.account_data(downloaded_now);
     }
 
     /// Persist resume state of running jobs. Each job's checkpoint flushes and fsyncs its
