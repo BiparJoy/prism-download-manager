@@ -259,10 +259,57 @@ export interface Settings {
     /** Start playlist videos' file names with their position ("01 - Title"). */
     numberPlaylistVideos: boolean;
   };
+  networks: {
+    /** Use several internet connections at once. */
+    enabled: boolean;
+    entries: NetworkEntry[];
+  };
+  dataAllowance: {
+    enabled: boolean;
+    period: AllowancePeriod;
+    /** Bytes per period. */
+    limit: number;
+  };
   shortcuts: Record<string, string>;
   onboardingDone: boolean;
   /** The app version whose "What's new" was shown ("" before 1.1.0). */
   lastSeenVersion: string;
+}
+
+export type AllowancePeriod = "daily" | "weekly" | "monthly";
+
+export interface NetworkEntry {
+  /** Adapter name as the OS reports it. */
+  interface: string;
+  name: string;
+  color: string;
+  enabled: boolean;
+  /** Bytes/s, 0 = unlimited. */
+  speedLimit: number;
+}
+
+export interface NetworkView {
+  interface: string;
+  name: string;
+  color: string;
+  addrs: string[];
+  present: boolean;
+  enabled: boolean;
+  speedLimit: number;
+  failing: boolean;
+  connections: number;
+  speed: number;
+  received: number;
+}
+
+export interface DataUsageView {
+  enabled: boolean;
+  period: AllowancePeriod;
+  limit: number;
+  used: number;
+  exhausted: boolean;
+  /** YYYY-MM-DD */
+  resetsOn: string;
 }
 
 export type CaptureSource = "manual" | "browser" | "clipboard" | "batch" | "grabber";

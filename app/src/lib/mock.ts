@@ -2,6 +2,9 @@
 // design review, marketing screenshots). It simulates downloads with live progress.
 
 import type {
+  DataUsageView,
+  NetworkEntry,
+  NetworkView,
   BatchInfo,
   FoundFile,
   StartMode,
@@ -175,11 +178,47 @@ const settings: Settings = {
   grabber: { defaultDepth: 2, maxPages: 2000, concurrentRequests: 6, respectRobots: true },
   antivirus: { enabled: false, kind: "auto", command: "", args: "", extensions: [] },
   video: { ytdlpPath: "", ffmpegPath: "", autoUpdate: true, preferredHeight: 1080, container: "mp4", audioFormat: "m4a", embedSubtitles: false, subtitleLangs: "en.*", embedThumbnail: true, embedMetadata: true, embedChapters: true, sponsorblock: "off", accelerate: true, cookiesFromBrowser: "", fileTemplate: "%(title)s [%(id)s].%(ext)s", numberPlaylistVideos: false },
+  networks: { enabled: true, entries: [{ interface: "usb0", name: "Phone", color: "#f59e0b", enabled: true, speedLimit: 0 }] },
+  dataAllowance: { enabled: true, period: "monthly", limit: 50 * 1024 * MB },
   shortcuts: {},
   // The demo bootstrap version: "What's new" opens with ?sheet=whatsnew, or by itself with ?lastseen=1.0.9 (an update).
   lastSeenVersion: (typeof location === "undefined" ? null : new URLSearchParams(location.search).get("lastseen")) ?? "1.1.5",
   onboardingDone: typeof location === "undefined" || !new URLSearchParams(location.search).has("onboarding"),
 };
+
+// Demo adapters: Wi-Fi and Ethernet from the "system", plus a configured phone tether.
+const demoAdapters = [
+  { interface: "wlan0", addrs: ["192.168.1.24"], speed: 4.2 * MB },
+  { interface: "eth0", addrs: ["10.0.0.7"], speed: 9.6 * MB },
+  { interface: "usb0", addrs: ["172.20.10.2"], speed: 2.1 * MB },
+];
+let demoUsed = 18.4 * 1024 * MB;
+
+function demoNetworks(): NetworkView[] {
+  return demoAdapters.map((a) => {
+    const e = settings.networks.entries.find((x) => x.interface === a.interface);
+    const on = settings.networks.enabled && (e?.enabled ?? true);
+    const jitter = 0.85 + Math.random() * 0.3;
+    return {
+      interface: a.interface,
+      name: e?.name || a.interface,
+      color: e?.color ?? "",
+      addrs: a.addrs,
+      present: true,
+      enabled: e?.enabled ?? true,
+      speedLimit: e?.speedLimit ?? 0,
+      failing: false,
+      connections: on ? 3 : 0,
+      speed: on ? Math.round(Math.min(a.speed, e?.speedLimit || Infinity) * jitter) : 0,
+      received: on ? Math.round(a.speed * 600) : 0,
+    };
+  });
+}
+
+function demoUsage(): DataUsageView {
+  const a = settings.dataAllowance;
+  return { enabled: a.enabled, period: a.period, limit: a.limit, used: demoUsed, exhausted: a.enabled && demoUsed >= a.limit, resetsOn: "2026-11-01" };
+}
 
 const grabberProjects: GrabberProject[] = [
   {
@@ -447,6 +486,19 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
     // A fresh copy, as the real backend sends: the same object wouldn't re-render the UI.
     emit({ type: "settingsChanged", payload: structuredClone(settings) });
     return structuredClone(settings);
+  },
+  networks: () => demoNetworks(),
+  update_network: ({ entry }) => {
+    const e = entry as NetworkEntry;
+    const list = settings.networks.entries.filter((x) => x.interface !== e.interface);
+    settings.networks.entries = [...list, e];
+    emit({ type: "settingsChanged", payload: structuredClone(settings) });
+    return demoNetworks();
+  },
+  data_usage: () => demoUsage(),
+  reset_data_usage: () => {
+    demoUsed = 0;
+    return demoUsage();
   },
   toggle_speed_limiter: () => {
     settings.downloads.speedLimiterEnabled = !settings.downloads.speedLimiterEnabled;

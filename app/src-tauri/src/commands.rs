@@ -4,11 +4,11 @@ use crate::windows;
 use prism_core::events::{BatchInfo, CaptureInfo, CaptureSource, VideoCapture};
 use prism_core::grabber::GrabberConfig;
 use prism_core::manager::{
-    BatchDecision, Bootstrap, CaptureDecision, Core, ItemDetails, ItemPatch, NewItem, StartMode,
-    VideoDecision,
+    BatchDecision, Bootstrap, CaptureDecision, Core, DataUsageView, ItemDetails, ItemPatch,
+    NetworkView, NewItem, StartMode, VideoDecision,
 };
 use prism_core::model::*;
-use prism_core::settings::Settings;
+use prism_core::settings::{NetworkEntry, Settings};
 use serde::Deserialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
@@ -41,6 +41,31 @@ pub async fn toggle_speed_limiter(core: State<'_, Core>, app: AppHandle) -> CmdR
     let on = core.toggle_speed_limiter().map_err(err)?;
     crate::tray::refresh(&app);
     Ok(on)
+}
+
+// ----- networks & data allowance -------------------------------------------------------------
+
+#[tauri::command]
+pub async fn networks(core: State<'_, Core>) -> CmdResult<Vec<NetworkView>> {
+    Ok(core.networks())
+}
+
+#[tauri::command]
+pub async fn update_network(
+    core: State<'_, Core>,
+    entry: NetworkEntry,
+) -> CmdResult<Vec<NetworkView>> {
+    core.update_network(entry).map_err(err)
+}
+
+#[tauri::command]
+pub async fn data_usage(core: State<'_, Core>) -> CmdResult<DataUsageView> {
+    Ok(core.data_usage())
+}
+
+#[tauri::command]
+pub async fn reset_data_usage(core: State<'_, Core>) -> CmdResult<DataUsageView> {
+    Ok(core.reset_data_usage())
 }
 
 // ----- adding downloads ---------------------------------------------------------------------
