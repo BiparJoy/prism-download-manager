@@ -6,14 +6,15 @@ import { BrandTile } from "../../components/LogoMark";
 import { Icon, type IconName } from "../../design/icons";
 import { type DeepPartial, patchSettings } from "../../lib/actions";
 import { api, type HfContext, type IntegrationStatus, type ToolStatus } from "../../lib/api";
-import { formatDate } from "../../lib/format";
+import { formatBytes, formatDate, formatSpeed } from "../../lib/format";
 import { LANGUAGES, t, tk } from "../../lib/i18n";
 import { needsRepair } from "../../lib/integration";
 import { openUrl, REPO_URL } from "../../lib/links";
 import { categoryIcon, displayName } from "../../lib/present";
 import { COMPLETE_SOUNDS } from "../../lib/sounds";
 import { playSound, useApp } from "../../lib/store";
-import type { Settings } from "../../lib/types";
+import type { AllowancePeriod, DataUsageView, NetworkView, Settings } from "../../lib/types";
+import { ProgressBar } from "../../components/Visuals";
 import { attempt, toast, useUi } from "../../lib/ui";
 import { pickFile, pickFolder, pickSavePath } from "../../lib/win";
 import { scheduleSummary } from "./SchedulerSheet";
@@ -23,6 +24,7 @@ export const SECTIONS: { id: string; label: string; icon: IconName; group?: bool
   { id: "appearance", label: tk("Appearance"), icon: "sun" },
   { id: "downloads", label: tk("Downloads"), icon: "download" },
   { id: "connection", label: tk("Connection"), icon: "globe" },
+  { id: "networks", label: tk("Networks"), icon: "activity" },
   { id: "proxy", label: tk("Proxy"), icon: "proxy" },
   { id: "speed", label: tk("Speed & queues"), icon: "speed-limiter" },
   { id: "capture", label: tk("File types & capture"), icon: "filter", group: true },
@@ -255,6 +257,8 @@ function SectionBody({ id, s }: { id: string; s: Settings }) {
           )}
         </Group>
       );
+    case "networks":
+      return <Networks s={s} />;
     case "speed":
       return <SpeedQueues s={s} />;
     case "capture":
@@ -494,11 +498,12 @@ function SpeedQueues({ s }: { s: Settings }) {
   return (
     <>
       <Group title={t("Global speed limiter")}>
-        <Toggle title={t("Limit total download speed")} hint={t("Quick toggle: Ctrl+L or the toolbar")} value={s.downloads.speedLimiterEnabled} onChange={(v) => save({ downloads: { speedLimiterEnabled: v } })} />
+        <Toggle title={t("Limit total download speed")} hint={t("Slow mode for calls and streaming. Quick toggle: Ctrl+L or the toolbar")} value={s.downloads.speedLimiterEnabled} onChange={(v) => save({ downloads: { speedLimiterEnabled: v } })} />
         <Row title={t("Limit")}>
           <RateField value={s.downloads.speedLimit} onCommit={(v) => save({ downloads: { speedLimit: v } })} label={t("Speed limit")} width={150} />
         </Row>
       </Group>
+      <DataAllowance s={s} />
       <Group title={t("Queues")}>
         {queues.map((q) => (
           <Row key={q.id} title={displayName(q.name)} hint={`${t("{count} at a time", { count: q.maxConcurrent })} · ${q.schedule.enabled ? scheduleSummary(q) : t("manual start")}${q.running ? ` · ${t("running")}` : ""}`}>
@@ -509,6 +514,146 @@ function SpeedQueues({ s }: { s: Settings }) {
         ))}
       </Group>
     </>
+  );
+}
+
+// Colours for networks without one of their own, in list order.
+const NETWORK_COLORS = ["#7c6cff", "#3dd68c", "#f5b544", "#4cc9f0", "#ff6b9a", "#a3e635"];
+
+/** Polls `load` every `ms` while mounted. */
+function usePolled<T>(load: () => Promise<T>, ms: number): [T | null, (v: T) => void] {
+  const [value, setValue] = useState<T | null>(null);
+  useEffect(() => {
+    let live = true;
+    const tick = () => void load().then((v) => live && setValue(v)).catch(() => {});
+    tick();
+    const id = setInterval(tick, ms);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ms]);
+  return [value, setValue];
+}
+
+function Networks({ s }: { s: Settings }) {
+  const [nets, setNets] = usePolled(api.networks, 1000);
+  const update = (n: NetworkView, change: Partial<{ name: string; color: string; enabled: boolean; speedLimit: number }>) =>
+    void attempt(
+      api
+        .updateNetwork({
+          interface: n.interface,
+          name: n.name === n.interface ? "" : n.name,
+          color: n.color,
+          enabled: n.enabled,
+          speedLimit: n.speedLimit,
+          ...change,
+        })
+        .then(setNets),
+    );
+  const total = (nets ?? []).reduce((sum, n) => sum + n.speed, 0);
+  return (
+    <>
+      <p className="lead">
+        {t("Combine Wi-Fi, Ethernet and a tethered phone: each download's connections are spread over every network you switch on, and faster networks take on more of the file.")}
+      </p>
+      <Group>
+        <Toggle
+          title={t("Use multiple networks")}
+          hint={t("Adds speed only when each network has its own internet connection (for example home Wi-Fi plus a phone over USB)")}
+          value={s.networks.enabled}
+          onChange={(v) => save({ networks: { enabled: v } })}
+        />
+        {s.networks.enabled && total > 0 && <Row title={t("Combined speed")}><code>{formatSpeed(total)}</code></Row>}
+      </Group>
+      <Group title={t("Networks on this computer")}>
+        {nets === null && <Row title={t("Looking for networks…")} />}
+        {nets?.length === 0 && <Row title={t("No network adapters with an address were found")} />}
+        {nets?.map((n, i) => {
+          const color = n.color || NETWORK_COLORS[i % NETWORK_COLORS.length];
+          const state = !n.present
+            ? t("Not connected")
+            : n.failing
+              ? t("No internet on this network?")
+              : s.networks.enabled && n.enabled
+                ? `${formatSpeed(n.speed)} · ${t("{count} connections", { count: n.connections })} · ${formatBytes(n.received)}`
+                : n.addrs.join(", ");
+          return (
+            <div key={n.interface}>
+              <Row
+                title={
+                  <span className="inline">
+                    <span aria-hidden style={{ width: 10, height: 10, borderRadius: 5, background: color, opacity: n.present ? 1 : 0.4 }} />
+                    {n.name}
+                    {n.name !== n.interface && <span className="muted">{n.interface}</span>}
+                  </span>
+                }
+                hint={state}
+              >
+                <Switch checked={n.enabled} label={t("Use {name}", { name: n.name })} disabled={!s.networks.enabled} onChange={(v) => update(n, { enabled: v })} />
+              </Row>
+              {s.networks.enabled && n.enabled && (
+                <Row title={t("Name, colour and speed limit")} hint={t("Applies to all downloads on this network")}>
+                  <span className="inline">
+                    <TextField value={n.name} label={t("Network name")} onCommit={(v) => update(n, { name: v.trim() })} />
+                    <input type="color" aria-label={t("Network colour")} value={color} onChange={(e) => update(n, { color: e.target.value })} style={{ width: 32, height: 28, border: "none", background: "none" }} />
+                    <RateField value={n.speedLimit} label={t("Network speed limit")} onCommit={(v) => update(n, { speedLimit: v })} />
+                  </span>
+                </Row>
+              )}
+            </div>
+          );
+        })}
+      </Group>
+    </>
+  );
+}
+
+const GIB = 1024 * 1024 * 1024;
+
+function DataAllowance({ s }: { s: Settings }) {
+  const [usage, setUsage] = usePolled<DataUsageView>(api.dataUsage, 5000);
+  const a = s.dataAllowance;
+  return (
+    <Group title={t("Data allowance")}>
+      <Toggle title={t("Pause downloads after a data allowance")} hint={t("For metered or capped connections")} value={a.enabled} onChange={(v) => save({ dataAllowance: { enabled: v } })} />
+      {a.enabled && (
+        <>
+          <Row title={t("Allowance")}>
+            <span className="inline">
+              <NumberField value={Math.max(1, Math.round(a.limit / GIB))} min={1} max={100000} suffix="GB" label={t("Allowance in GB")} onCommit={(v) => save({ dataAllowance: { limit: Math.round(v * GIB) } })} width={110} />
+              <Segmented<AllowancePeriod>
+                size="sm"
+                label={t("Allowance period")}
+                value={a.period}
+                onChange={(v) => save({ dataAllowance: { period: v } })}
+                options={[
+                  { value: "daily", label: t("per day") },
+                  { value: "weekly", label: t("per week") },
+                  { value: "monthly", label: t("per month") },
+                ]}
+              />
+            </span>
+          </Row>
+          {usage && (
+            <Row
+              title={t("{used} of {limit} used", { used: formatBytes(usage.used), limit: formatBytes(a.limit) })}
+              hint={usage.exhausted ? t("Downloads are paused until {date}", { date: usage.resetsOn }) : t("Resets on {date}", { date: usage.resetsOn })}
+            >
+              <span className="inline" style={{ minWidth: 220 }}>
+                <span style={{ flex: 1 }}>
+                  <ProgressBar value={Math.min(1, usage.used / Math.max(1, a.limit))} state={usage.exhausted ? "error" : "active"} label={t("Data allowance")} />
+                </span>
+                <button type="button" className="btn btn--sm" onClick={() => void attempt(api.resetDataUsage().then(setUsage))}>
+                  {t("Reset")}
+                </button>
+              </span>
+            </Row>
+          )}
+        </>
+      )}
+    </Group>
   );
 }
 
