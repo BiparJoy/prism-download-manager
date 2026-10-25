@@ -412,7 +412,10 @@ impl VideoService {
         progress: UnboundedSender<YtProgress>,
         cancel: CancellationToken,
     ) -> Result<PathBuf> {
-        match self.run_ytdlp_opts(job, progress.clone(), cancel.clone()).await {
+        match self
+            .run_ytdlp_opts(job, progress.clone(), cancel.clone())
+            .await
+        {
             Err(e) => match without_page_cookies(&job.url, &job.context, &e) {
                 Some(context) => {
                     let job = YtDlpJob {
