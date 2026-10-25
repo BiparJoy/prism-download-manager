@@ -14,6 +14,7 @@ pub mod grabber;
 pub mod ipc;
 pub mod manager;
 pub mod model;
+pub mod networks;
 pub mod paths;
 pub mod platform;
 mod rt;

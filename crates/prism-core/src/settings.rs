@@ -22,6 +22,8 @@ pub struct Settings {
     pub grabber: Grabber,
     pub antivirus: Antivirus,
     pub video: Video,
+    pub networks: Networks,
+    pub data_allowance: DataAllowance,
     pub shortcuts: BTreeMap<String, String>,
     pub onboarding_done: bool,
     /// The app version whose "What's new" the user has seen ("" before 1.1.0).
@@ -443,6 +445,78 @@ impl Default for Video {
             cookies_from_browser: String::new(),
             file_template: "%(title)s [%(id)s].%(ext)s".into(),
             number_playlist_videos: false,
+        }
+    }
+}
+
+/// Multi-network downloads (from Plexo): spread connections over every internet connection
+/// of the computer so their speeds add up.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Networks {
+    /// Use several networks at once. Off = the system's default route only.
+    pub enabled: bool,
+    /// Per-adapter choices. Adapters without an entry are used with default settings.
+    pub entries: Vec<NetworkEntry>,
+}
+
+impl Networks {
+    pub fn entry(&self, interface: &str) -> Option<&NetworkEntry> {
+        self.entries.iter().find(|e| e.interface == interface)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct NetworkEntry {
+    /// Adapter name as the OS reports it (`en0`, `wlan0`, `Wi-Fi`).
+    pub interface: String,
+    /// Display name chosen by the user ("" = the adapter name).
+    pub name: String,
+    /// Display colour (`#rrggbb`, "" = automatic).
+    pub color: String,
+    pub enabled: bool,
+    /// Bytes/s across all downloads on this network (0 = unlimited).
+    pub speed_limit: u64,
+}
+
+impl Default for NetworkEntry {
+    fn default() -> Self {
+        Self {
+            interface: String::new(),
+            name: String::new(),
+            color: String::new(),
+            enabled: true,
+            speed_limit: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AllowancePeriod {
+    Daily,
+    Weekly,
+    #[default]
+    Monthly,
+}
+
+/// A data cap: downloads pause once this much was downloaded in the current period.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DataAllowance {
+    pub enabled: bool,
+    pub period: AllowancePeriod,
+    /// Bytes per period.
+    pub limit: u64,
+}
+
+impl Default for DataAllowance {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            period: AllowancePeriod::Monthly,
+            limit: 50 * 1024 * 1024 * 1024,
         }
     }
 }
