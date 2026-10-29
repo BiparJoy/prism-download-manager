@@ -648,7 +648,6 @@
   "Connections, speed and info under the list": "Připojení, rychlost a informace pod seznamem",
   "Global speed limiter": "Globální omezení rychlosti",
   "Limit total download speed": "Omezit celkovou rychlost stahování",
-  "Quick toggle: Ctrl+L or the toolbar": "Rychlé přepnutí: Ctrl+L nebo panel nástrojů",
   "Limit": "Limit",
   "Queues": "Fronty",
   "{count} at a time": {
@@ -1034,7 +1033,7 @@
   "For gated and private models. Sent only to the server above, never stored with the downloads.": "Pro modely s omezeným přístupem a soukromé modely. Posílá se jen na server uvedený výše a nikdy se neukládá u stahování.",
   "Create a token": "Vytvořit token",
   "Models folder": "Složka modelů",
-  "Reset": "Vynulovat",
+  "Reset": "Obnovit výchozí",
   "Prism is open source. Star it on GitHub": "Prism je open source. Dejte mu hvězdičku na GitHubu",
   "AI models from Hugging Face": "AI modely z Hugging Face",
   "Download a model by its name, a link or a search. Prism picks the files you need (one GGUF version, the weights in one format) and downloads them over many connections, checked against Hugging Face.": "Stáhněte model podle názvu, odkazu nebo hledaného výrazu. Prism vybere soubory, které potřebujete (jednu verzi GGUF, váhy v jednom formátu), stáhne je přes více připojení a ověří je podle Hugging Face.",

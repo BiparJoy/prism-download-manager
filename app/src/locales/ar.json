@@ -685,7 +685,6 @@
   "Connections, speed and info under the list": "الاتصالات والسرعة والمعلومات أسفل القائمة",
   "Global speed limiter": "محدد السرعة العام",
   "Limit total download speed": "تحديد سرعة التنزيل الإجمالية",
-  "Quick toggle: Ctrl+L or the toolbar": "تبديل سريع: Ctrl+L أو شريط الأدوات",
   "Limit": "الحد",
   "Queues": "قوائم الانتظار",
   "{count} at a time": {

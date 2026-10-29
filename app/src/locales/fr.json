@@ -635,7 +635,6 @@
   "Connections, speed and info under the list": "Connexions, vitesse et infos sous la liste",
   "Global speed limiter": "Limiteur de vitesse global",
   "Limit total download speed": "Limiter la vitesse totale de téléchargement",
-  "Quick toggle: Ctrl+L or the toolbar": "Bascule rapide : Ctrl+L ou la barre d’outils",
   "Limit": "Limite",
   "Queues": "Files d’attente",
   "{count} at a time": {
@@ -1011,7 +1010,7 @@
   "For gated and private models. Sent only to the server above, never stored with the downloads.": "Pour les modèles en accès restreint et privés. Envoyé uniquement au serveur ci-dessus, jamais enregistré avec les téléchargements.",
   "Create a token": "Créer un jeton",
   "Models folder": "Dossier des modèles",
-  "Reset": "Remettre à zéro",
+  "Reset": "Réinitialiser",
   "Prism is open source. Star it on GitHub": "Prism est open source. Mettez-lui une étoile sur GitHub",
   "AI models from Hugging Face": "Modèles d’IA de Hugging Face",
   "Download a model by its name, a link or a search. Prism picks the files you need (one GGUF version, the weights in one format) and downloads them over many connections, checked against Hugging Face.": "Téléchargez un modèle par son nom, un lien ou une recherche. Prism choisit les fichiers nécessaires (une version GGUF, les poids dans un seul format), les télécharge via de nombreuses connexions et les vérifie auprès de Hugging Face.",
