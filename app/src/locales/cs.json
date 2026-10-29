@@ -1108,5 +1108,6 @@
   "Downloads are paused until {date}": "Stahování je pozastaveno do {date}",
   "Resets on {date}": "Obnoví se {date}",
   "Network": "Síť",
-  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Zapněte Používat více sítí v Nastavení › Sítě a uvidíte zde rychlost každé sítě."
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Zapněte Používat více sítí v Nastavení › Sítě a uvidíte zde rychlost každé sítě.",
+  "Reset usage": "Vynulovat spotřebu"
 }

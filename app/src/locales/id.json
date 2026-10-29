@@ -1036,5 +1036,6 @@
   "Downloads are paused until {date}": "Unduhan dijeda hingga {date}",
   "Resets on {date}": "Diatur ulang pada {date}",
   "Network": "Jaringan",
-  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Aktifkan Gunakan beberapa jaringan di Pengaturan › Jaringan untuk melihat kecepatan tiap jaringan di sini."
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Aktifkan Gunakan beberapa jaringan di Pengaturan › Jaringan untuk melihat kecepatan tiap jaringan di sini.",
+  "Reset usage": "Atur ulang pemakaian"
 }

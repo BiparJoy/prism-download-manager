@@ -646,7 +646,7 @@ function DataAllowance({ s }: { s: Settings }) {
                   <ProgressBar value={Math.min(1, usage.used / Math.max(1, a.limit))} state={usage.exhausted ? "error" : "active"} label={t("Data allowance")} />
                 </span>
                 <button type="button" className="btn btn--sm" onClick={() => void attempt(api.resetDataUsage().then(setUsage))}>
-                  {t("Reset")}
+                  {t("Reset usage")}
                 </button>
               </span>
             </Row>

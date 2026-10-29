@@ -1156,5 +1156,6 @@
   "Downloads are paused until {date}": "التنزيلات متوقفة مؤقتًا حتى {date}",
   "Resets on {date}": "تُعاد التهيئة في {date}",
   "Network": "الشبكة",
-  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "فعّل «استخدام عدة شبكات» في الإعدادات › الشبكات لترى سرعة كل شبكة هنا."
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "فعّل «استخدام عدة شبكات» في الإعدادات › الشبكات لترى سرعة كل شبكة هنا.",
+  "Reset usage": "تصفير الاستهلاك"
 }

@@ -1060,5 +1060,6 @@
   "Downloads are paused until {date}": "Downloads sind bis {date} pausiert",
   "Resets on {date}": "Wird am {date} zurückgesetzt",
   "Network": "Netzwerk",
-  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Schalte „Mehrere Netzwerke verwenden“ unter Einstellungen › Netzwerke ein, um hier die Geschwindigkeit jedes Netzwerks zu sehen."
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Schalte „Mehrere Netzwerke verwenden“ unter Einstellungen › Netzwerke ein, um hier die Geschwindigkeit jedes Netzwerks zu sehen.",
+  "Reset usage": "Verbrauch zurücksetzen"
 }

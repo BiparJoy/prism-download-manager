@@ -1060,5 +1060,6 @@
   "Downloads are paused until {date}": "İndirmeler {date} tarihine kadar duraklatıldı",
   "Resets on {date}": "{date} tarihinde sıfırlanır",
   "Network": "Ağ",
-  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Her ağın hızını burada görmek için Ayarlar › Ağlar bölümünde Birden fazla ağ kullan seçeneğini açın."
+  "Turn on Use multiple networks in Settings › Networks to see the speed of each network here.": "Her ağın hızını burada görmek için Ayarlar › Ağlar bölümünde Birden fazla ağ kullan seçeneğini açın.",
+  "Reset usage": "Kullanımı sıfırla"
 }
