@@ -42,9 +42,11 @@ pub(crate) fn server_of(url: &url::Url) -> String {
 }
 
 /// How well a network reaches one server.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Reach {
+    /// Failures in a row, each within [`BENCH_FOR`] of the one before.
     failures: u32,
+    last_failure: Instant,
     benched_until: Option<Instant>,
 }
 
@@ -255,10 +257,17 @@ impl Network {
     pub(crate) fn on_connect_failure(&self, server: &str) {
         let now = Instant::now();
         let mut reach = self.reach.lock().expect("network lock");
-        // Forget servers whose bench ran out long ago, so the map stays small.
-        reach.retain(|_, r| r.benched_until.is_none_or(|t| now < t + BENCH_FOR));
-        let r = reach.entry(server.to_string()).or_default();
+        // Forget old failures, so the map stays small and occasional ones don't add up.
+        reach.retain(|_, r| {
+            now < r.last_failure + BENCH_FOR || r.benched_until.is_some_and(|t| now < t)
+        });
+        let r = reach.entry(server.to_string()).or_insert(Reach {
+            failures: 0,
+            last_failure: now,
+            benched_until: None,
+        });
         r.failures += 1;
+        r.last_failure = now;
         if r.failures >= BENCH_AFTER_FAILURES {
             tracing::info!(network = %self.interface, server, "cannot reach the server, benched");
             r.benched_until = Some(now + BENCH_FOR);
@@ -604,6 +613,31 @@ mod tests {
                 .interface(),
             "b"
         );
+    }
+
+    #[test]
+    fn occasional_failures_do_not_add_up_to_a_bench() {
+        let set = set_with(&["a"]);
+        let a = set.get("a").unwrap();
+        let Some(long_ago) = Instant::now().checked_sub(BENCH_FOR + Duration::from_secs(1)) else {
+            return;
+        };
+        a.reach.lock().unwrap().insert(
+            S.to_string(),
+            Reach {
+                failures: BENCH_AFTER_FAILURES - 1,
+                last_failure: long_ago,
+                benched_until: None,
+            },
+        );
+        a.on_connect_failure(S);
+        assert!(
+            !a.is_failing_for(S),
+            "failures long apart are not 'in a row'"
+        );
+        a.on_connect_failure(S);
+        a.on_connect_failure(S);
+        assert!(a.is_failing_for(S));
     }
 
     #[test]

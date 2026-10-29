@@ -101,11 +101,39 @@ pub(crate) fn error_chain(e: &dyn std::error::Error) -> String {
 }
 
 fn map_send_error(e: reqwest::Error) -> FetchError {
-    let connect = e.is_connect();
+    let connect = e.is_connect() && !reached_server(&e);
     FetchError {
         connect,
         ..classify_send_error(e)
     }
+}
+
+/// Whether the server answered the connection before it failed: reset or closed (reqwest calls
+/// a reset during the TLS handshake a connect error too), or a TLS error. That is the server's
+/// doing (a connection limit), not a network that can't reach it.
+fn reached_server(e: &reqwest::Error) -> bool {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
+    fn answered(c: &(dyn std::error::Error + 'static)) -> bool {
+        if c.downcast_ref::<rustls::Error>().is_some() {
+            return true;
+        }
+        let Some(io) = c.downcast_ref::<std::io::Error>() else {
+            return false;
+        };
+        // A wrapped io::Error (TLS streams) isn't in the `source()` chain: look inside.
+        matches!(
+            io.kind(),
+            ConnectionReset | ConnectionAborted | UnexpectedEof | BrokenPipe
+        ) || io.get_ref().is_some_and(|inner| answered(inner))
+    }
+    let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(c) = cur {
+        if answered(c) {
+            return true;
+        }
+        cur = c.source();
+    }
+    false
 }
 
 fn classify_send_error(e: reqwest::Error) -> FetchError {
@@ -703,5 +731,9 @@ mod tests {
         let reset = send_error(format!("http://{addr}/")).await;
         assert!(!reset.connect, "{:?}", reset.error);
         assert_eq!(reset.kind, FailKind::MaybeRefused);
+        // The same during the TLS handshake (reqwest reports that as a connect error).
+        let tls_reset = send_error(format!("https://{addr}/")).await;
+        assert!(!tls_reset.connect, "{:?}", tls_reset.error);
+        assert_eq!(tls_reset.kind, FailKind::MaybeRefused);
     }
 }
