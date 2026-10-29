@@ -143,11 +143,46 @@ pub(crate) fn build_client_on(
             })?,
         ),
     };
-    if let Some(n) = network {
+    // A proxy on this computer can't be reached through an adapter; it picks the route itself.
+    if let Some(n) = network.filter(|_| !proxy_is_local(&spec.proxy)) {
         b = bind_to_network(b, n);
     }
     b.build()
         .map_err(|e| EngineError::network(format!("cannot create HTTP client: {e}")))
+}
+
+/// Whether the proxy runs on this computer (`localhost`, `127.x`, `::1`).
+// shortcut: the System proxy is only read from the environment, not from the Windows/macOS
+// proxy settings; read those when a local system proxy there turns out to break pinning.
+fn proxy_is_local(proxy: &ProxyConfig) -> bool {
+    let is_local = |url: &str| {
+        let with_scheme = if url.contains("://") {
+            url.to_string()
+        } else {
+            format!("http://{url}")
+        };
+        url::Url::parse(&with_scheme).is_ok_and(|u| match u.host() {
+            Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        })
+    };
+    match proxy {
+        ProxyConfig::None => false,
+        ProxyConfig::Http { url, .. } | ProxyConfig::Socks5 { url, .. } => is_local(url),
+        ProxyConfig::System => [
+            "ALL_PROXY",
+            "all_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+        ]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .any(|v| is_local(&v)),
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -194,6 +229,25 @@ mod tests {
             "socks5h://u:p%20w@h:1080"
         );
         assert!(proxy_url("http://[bad", &None, &None, false).is_err());
+    }
+
+    #[test]
+    fn local_proxies_are_recognised() {
+        let http = |url: &str| ProxyConfig::Http {
+            url: url.into(),
+            username: None,
+            password: None,
+        };
+        assert!(proxy_is_local(&http("127.0.0.1:7890")));
+        assert!(proxy_is_local(&http("http://localhost:3128")));
+        assert!(proxy_is_local(&ProxyConfig::Socks5 {
+            url: "socks5://[::1]:1080".into(),
+            username: None,
+            password: None,
+        }));
+        assert!(!proxy_is_local(&http("proxy.example.com:3128")));
+        assert!(!proxy_is_local(&http("10.0.0.5:3128")));
+        assert!(!proxy_is_local(&ProxyConfig::None));
     }
 
     #[test]

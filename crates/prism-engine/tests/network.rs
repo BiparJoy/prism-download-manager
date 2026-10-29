@@ -7,8 +7,8 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::*;
-use prism_engine::{NetworkSpec, list_interfaces};
-use prism_testserver::expected_sha256;
+use prism_engine::{DownloadEvent, NetworkSpec, list_interfaces};
+use prism_testserver::{LimitMode, ServerConfig, expected_sha256};
 
 fn net(interface: &str, enabled: bool, speed_limit: u64) -> NetworkSpec {
     NetworkSpec {
@@ -160,4 +160,66 @@ async fn switching_a_network_off_moves_connections_away() {
         "everything still went over the disabled network"
     );
     assert_eq!(lo.connections(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_single_connection_on_a_dead_network_moves_to_a_working_one() {
+    let Some(other) = list_interfaces().into_iter().next() else {
+        eprintln!("no non-loopback adapter: skipped");
+        return;
+    };
+    let srv = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let size = 4 * MIB;
+    let e = engine();
+    // The dead network comes first, so the only connection starts on it.
+    e.networks()
+        .configure(&[net(&other.name, true, 0), net("lo", true, 0)]);
+    let h = e.start(
+        request(
+            &srv.url(&format!("/file/s.bin?size={size}&seed=36")),
+            dir.path(),
+            1,
+        ),
+        None,
+        vec![],
+    );
+    let done = wait(&h, 90).await.unwrap();
+    assert_eq!(sha256_file(&done.path), expected_sha256(36, size));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_server_connection_limit_is_learned_on_a_pinned_network() {
+    let srv = server(ServerConfig {
+        max_connections: Some(4),
+        limit_mode: LimitMode::Reset,
+        ..Default::default()
+    })
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let size = 24 * MIB;
+    let e = engine();
+    e.networks().configure(&[net("lo", true, 0)]);
+    let h = e.start(
+        request(
+            &srv.url(&format!("/file/r.bin?size={size}&seed=37&throttle=4M")),
+            dir.path(),
+            16,
+        ),
+        None,
+        vec![],
+    );
+    let events = collect_events(&h);
+    let done = wait(&h, 120).await.unwrap();
+    assert_eq!(sha256_file(&done.path), expected_sha256(37, size));
+    let detected = events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e, DownloadEvent::ServerLimitDetected { .. }));
+    assert!(
+        detected,
+        "the resets are a server limit, not a dead network"
+    );
+    assert!(!e.networks().get("lo").unwrap().is_failing());
 }

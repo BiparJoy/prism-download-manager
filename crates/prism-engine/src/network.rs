@@ -28,6 +28,9 @@ use crate::limiter::RateLimiter;
 const BENCH_AFTER_FAILURES: u32 = 3;
 /// How long a failing network is not given new connections.
 const BENCH_FOR: Duration = Duration::from_secs(30);
+/// A network that received data this recently works: its failed connections are the server's
+/// doing (a connection limit, a reset), not the network's.
+const WORKING_WITHIN: Duration = Duration::from_secs(3);
 
 /// A network adapter of this computer, as reported by the operating system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +137,9 @@ pub struct Network {
     connections: AtomicUsize,
     failures: AtomicU32,
     benched_until: RwLock<Option<Instant>>,
+    /// When data last arrived, in ms since `created` (0 = never).
+    created: Instant,
+    last_received_ms: AtomicU64,
 }
 
 impl Network {
@@ -148,6 +154,8 @@ impl Network {
             connections: AtomicUsize::new(0),
             failures: AtomicU32::new(0),
             benched_until: RwLock::new(None),
+            created: Instant::now(),
+            last_received_ms: AtomicU64::new(0),
         }
     }
 
@@ -190,6 +198,15 @@ impl Network {
 
     pub(crate) fn add_received(&self, n: u64) {
         self.received.fetch_add(n, Ordering::Relaxed);
+        let ms = self.created.elapsed().as_millis() as u64;
+        self.last_received_ms.store(ms.max(1), Ordering::Relaxed);
+    }
+
+    fn received_within(&self, d: Duration, now: Instant) -> bool {
+        match self.last_received_ms.load(Ordering::Relaxed) {
+            0 => false,
+            ms => now.saturating_duration_since(self.created) <= Duration::from_millis(ms) + d,
+        }
     }
 
     /// Connections currently assigned to this network.
@@ -216,9 +233,12 @@ impl Network {
         }
     }
 
-    /// A connection on this network could not connect. After a few failures in a row the
-    /// network gets no new connections for a while.
+    /// A connection on this network could not connect. After a few failures in a row while
+    /// nothing arrives over it, the network gets no new connections for a while.
     pub(crate) fn on_failure(&self) {
+        if self.received_within(WORKING_WITHIN, Instant::now()) {
+            return;
+        }
         let n = self.failures.fetch_add(1, Ordering::AcqRel) + 1;
         if n >= BENCH_AFTER_FAILURES {
             tracing::info!(network = %self.interface, "network failing, benched");
@@ -297,6 +317,10 @@ impl NetworkSet {
                 None => Arc::new(Network::new(spec, iface)),
             };
             next.push(net);
+        }
+        // Connections still holding a removed network must see it switched off and move on.
+        for n in g.iter().filter(|n| !next.iter().any(|m| Arc::ptr_eq(n, m))) {
+            n.enabled.store(false, Ordering::Release);
         }
         *g = next;
     }
@@ -530,6 +554,37 @@ mod tests {
         assert_eq!(a.received(), 10);
         assert_eq!(a.limiter().rate(), 5);
         assert_eq!(set.stats().len(), 2);
+    }
+
+    #[test]
+    fn a_network_that_delivers_data_is_not_benched_for_refused_connections() {
+        let set = set_with(&["a"]);
+        let a = set.get("a").unwrap();
+        a.add_received(1);
+        for _ in 0..2 * BENCH_AFTER_FAILURES {
+            a.on_failure();
+        }
+        assert!(
+            !a.is_failing(),
+            "a server refusing extra connections is not a dead network"
+        );
+        // Once nothing has arrived for a while, failures count again.
+        let later = Instant::now() + WORKING_WITHIN + Duration::from_secs(1);
+        assert!(!a.received_within(WORKING_WITHIN, later));
+    }
+
+    #[test]
+    fn removed_networks_are_switched_off_for_their_connections() {
+        let set = set_with(&["a", "b"]);
+        let held = set.lease().unwrap();
+        assert_eq!(held.network().interface(), "a");
+        set.configure(&[spec("b")]);
+        assert!(
+            !held.network().is_enabled(),
+            "a connection on a removed network moves on"
+        );
+        set.configure(&[]);
+        assert!(!set.get("b").is_some_and(|b| b.is_enabled()) && !set.is_active());
     }
 
     #[test]

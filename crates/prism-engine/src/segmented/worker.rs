@@ -128,7 +128,7 @@ impl<F: RangeFetcher> Worker<F> {
                     }
                     match ctx
                         .table
-                        .acquire(self.id, self.allow_race && !any_limited(&ctx.limiters))
+                        .acquire(self.id, self.allow_race && !self.capped())
                     {
                         Some((a, kind)) => {
                             match kind {
@@ -243,6 +243,16 @@ impl<F: RangeFetcher> Worker<F> {
         }
     }
 
+    /// Whether a speed limit applies to this connection (its network's included): racing a
+    /// tail would spend the capped budget on duplicate bytes.
+    fn capped(&self) -> bool {
+        any_limited(&self.ctx.limiters)
+            || self
+                .fetcher
+                .network()
+                .is_some_and(|n| n.limiter().rate() != 0)
+    }
+
     fn release(&self, current: Option<Assignment>, failed: bool) {
         if let Some(a) = current {
             self.ctx.table.release(a.seg, self.id, failed);
@@ -267,16 +277,10 @@ impl<F: RangeFetcher> Worker<F> {
                 self.release(Some(a), false);
                 return Some(WorkerExit::Fatal(e.error));
             }
-            // On a pinned network, failing to connect says more about that network than about
-            // a server connection limit: stop this connection once the network is benched so a
-            // replacement goes over another one.
-            FailKind::MaybeRefused if self.fetcher.network().is_some() => {
-                if self.fetcher.network().is_some_and(|n| n.is_failing()) {
-                    self.set_connected(false);
-                    self.release(Some(a), false);
-                    return Some(WorkerExit::GaveUp(e.error));
-                }
-            }
+            // Its network was benched (nothing arrives over it): not a server limit. An
+            // ordinary retry, whose request the fetcher moves to another network; when every
+            // network is down, the retries run out as they would without networks.
+            FailKind::MaybeRefused if self.fetcher.network().is_some_and(|n| n.is_failing()) => {}
             FailKind::Refused | FailKind::MaybeRefused => {
                 let others = ctx
                     .connected
