@@ -143,8 +143,7 @@ pub(crate) fn build_client_on(
             })?,
         ),
     };
-    // A proxy on this computer can't be reached through an adapter; it picks the route itself.
-    if let Some(n) = network.filter(|_| !proxy_is_local(&spec.proxy)) {
+    if let Some(n) = network {
         b = bind_to_network(b, n);
     }
     b.build()
@@ -154,7 +153,7 @@ pub(crate) fn build_client_on(
 /// Whether the proxy runs on this computer (`localhost`, `127.x`, `::1`).
 // shortcut: the System proxy is only read from the environment, not from the Windows/macOS
 // proxy settings; read those when a local system proxy there turns out to break pinning.
-fn proxy_is_local(proxy: &ProxyConfig) -> bool {
+pub(crate) fn proxy_is_local(proxy: &ProxyConfig) -> bool {
     let is_local = |url: &str| {
         let with_scheme = if url.contains("://") {
             url.to_string()

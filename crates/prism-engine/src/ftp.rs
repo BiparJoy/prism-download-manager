@@ -545,6 +545,7 @@ pub(crate) async fn run(
         read_timeout: cfg.read_timeout,
         max_retries,
         race: ranged,
+        networks: Default::default(),
         few_requests: Default::default(),
     });
     let factory = Arc::new(FtpFactory {

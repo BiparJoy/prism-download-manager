@@ -10,7 +10,7 @@ use super::{ChunkStream, FailKind, FetchError, InitialStream, RangeFetcher, SegC
 use crate::backoff::Backoff;
 use crate::error::EngineError;
 use crate::hostlimits::HostPermit;
-use crate::limiter::{acquire_all, any_limited};
+use crate::limiter::acquire_all;
 use crate::progress::DownloadEvent;
 
 /// Upper bound for a server-suggested `Retry-After`.
@@ -128,7 +128,7 @@ impl<F: RangeFetcher> Worker<F> {
                     }
                     match ctx
                         .table
-                        .acquire(self.id, self.allow_race && !self.capped())
+                        .acquire(self.id, self.allow_race && ctx.may_race())
                     {
                         Some((a, kind)) => {
                             match kind {
@@ -243,16 +243,6 @@ impl<F: RangeFetcher> Worker<F> {
         }
     }
 
-    /// Whether a speed limit applies to this connection (its network's included): racing a
-    /// tail would spend the capped budget on duplicate bytes.
-    fn capped(&self) -> bool {
-        any_limited(&self.ctx.limiters)
-            || self
-                .fetcher
-                .network()
-                .is_some_and(|n| n.limiter().rate() != 0)
-    }
-
     fn release(&self, current: Option<Assignment>, failed: bool) {
         if let Some(a) = current {
             self.ctx.table.release(a.seg, self.id, failed);
@@ -277,10 +267,11 @@ impl<F: RangeFetcher> Worker<F> {
                 self.release(Some(a), false);
                 return Some(WorkerExit::Fatal(e.error));
             }
-            // Its network was benched (nothing arrives over it): not a server limit. An
-            // ordinary retry, whose request the fetcher moves to another network; when every
-            // network is down, the retries run out as they would without networks.
-            FailKind::MaybeRefused if self.fetcher.network().is_some_and(|n| n.is_failing()) => {}
+            // Its network could not connect to the server: not a server limit. An ordinary
+            // retry, whose request the fetcher moves to another network once this one is
+            // benched; when every network is down, the retries run out as they would without
+            // networks.
+            FailKind::MaybeRefused if e.connect && self.fetcher.network().is_some() => {}
             FailKind::Refused | FailKind::MaybeRefused => {
                 let others = ctx
                     .connected

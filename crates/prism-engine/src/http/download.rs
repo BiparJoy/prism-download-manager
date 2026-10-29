@@ -247,6 +247,7 @@ pub(crate) async fn run(
         read_timeout: cfg.read_timeout,
         max_retries: req.max_retries.unwrap_or(cfg.max_retries),
         race: ranged,
+        networks: engine.networks.clone(),
         few_requests: Default::default(),
     });
     if ranged {

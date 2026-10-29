@@ -223,3 +223,36 @@ async fn a_server_connection_limit_is_learned_on_a_pinned_network() {
     );
     assert!(!e.networks().get("lo").unwrap().is_failing());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dead_network_is_not_taken_for_a_server_limit() {
+    let Some(other) = list_interfaces().into_iter().next() else {
+        eprintln!("no non-loopback adapter: skipped");
+        return;
+    };
+    let srv = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let size = 16 * MIB;
+    let e = engine();
+    e.networks()
+        .configure(&[net("lo", true, 0), net(&other.name, true, 0)]);
+    let h = e.start(
+        request(
+            &srv.url(&format!("/file/d.bin?size={size}&seed=38&throttle=8M")),
+            dir.path(),
+            8,
+        ),
+        None,
+        vec![],
+    );
+    let events = collect_events(&h);
+    let done = wait(&h, 90).await.unwrap();
+    assert_eq!(sha256_file(&done.path), expected_sha256(38, size));
+    let limit = events.lock().unwrap().iter().find_map(|e| match e {
+        DownloadEvent::ServerLimitDetected { connections } => Some(*connections),
+        _ => None,
+    });
+    assert_eq!(limit, None, "the server has no connection limit");
+    assert!(e.host_limits().is_empty(), "{:?}", e.host_limits());
+    assert_eq!(e.networks().get(&other.name).unwrap().received(), 0);
+}

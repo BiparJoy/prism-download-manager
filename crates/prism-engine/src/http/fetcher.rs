@@ -9,14 +9,14 @@ use reqwest::header::{self, HeaderValue};
 use url::Url;
 
 use super::auth::ChallengeAction;
-use super::client::build_client_on;
+use super::client::{build_client_on, proxy_is_local};
 use super::{
     HttpCtx, SourceRef, Validators, header_string, parse_content_range, parse_unsatisfied_range,
     retry_after, strong_etag,
 };
 use crate::error::EngineError;
 use crate::filename;
-use crate::network::{Network, NetworkLease};
+use crate::network::{Network, NetworkLease, server_of};
 use crate::progress::ProbeInfo;
 use crate::request::HttpMethod;
 use crate::segmented::table::WorkerId;
@@ -101,6 +101,14 @@ pub(crate) fn error_chain(e: &dyn std::error::Error) -> String {
 }
 
 fn map_send_error(e: reqwest::Error) -> FetchError {
+    let connect = e.is_connect();
+    FetchError {
+        connect,
+        ..classify_send_error(e)
+    }
+}
+
+fn classify_send_error(e: reqwest::Error) -> FetchError {
     if e.is_timeout() {
         FetchError::transient(EngineError::Timeout)
     } else if e.is_redirect() {
@@ -128,7 +136,12 @@ fn status_error(status: u16) -> EngineError {
 
 impl HttpFetcher {
     pub(crate) fn new(ctx: Arc<HttpCtx>, worker: WorkerId) -> Self {
-        let lease = ctx.networks.lease();
+        // Through a proxy on this computer the proxy picks the route: no network to pin to.
+        let lease = if proxy_is_local(&ctx.spec.proxy) {
+            None
+        } else {
+            ctx.networks.lease(&server_of(&ctx.sources.original()))
+        };
         let client = build_client_on(&ctx.spec, lease.as_ref().map(|l| &**l.network()));
         Self {
             ctx,
@@ -187,28 +200,29 @@ impl HttpFetcher {
         range: Option<(u64, Option<u64>)>,
         if_range: Option<&str>,
     ) -> Result<reqwest::Response, FetchError> {
-        self.move_off_unusable_network();
+        let server = server_of(url);
+        self.move_off_unusable_network(&server);
         let r = self.send_inner(url, range, if_range).await;
         if let Some(l) = &self.lease {
             match &r {
-                Ok(_) => l.network().on_success(),
-                Err(e) if e.kind != FailKind::Fatal => l.network().on_failure(),
+                Ok(_) => l.network().on_success(&server),
+                Err(e) if e.connect => l.network().on_connect_failure(&server),
                 Err(_) => {}
             }
         }
         r
     }
 
-    /// Moves this connection to another network when its own one was switched off or keeps
-    /// failing (the probe retries on one fetcher, so it must not stay on a dead network).
-    fn move_off_unusable_network(&mut self) {
+    /// Moves this connection to another network when its own one was switched off or can't
+    /// reach `server` (the probe retries on one fetcher, so it must not stay on a dead network).
+    fn move_off_unusable_network(&mut self, server: &str) {
         let Some(current) = self.lease.as_ref().map(|l| l.network().clone()) else {
             return;
         };
-        if current.is_enabled() && !current.is_failing() {
+        if current.is_enabled() && !current.is_failing_for(server) {
             return;
         }
-        let next = self.ctx.networks.lease();
+        let next = self.ctx.networks.lease(server);
         if next
             .as_ref()
             .is_some_and(|n| Arc::ptr_eq(n.network(), &current))
@@ -405,6 +419,7 @@ impl HttpFetcher {
                         kind: FailKind::Transient,
                         error: EngineError::Http { status },
                         retry_after: retry_after(&headers),
+                        connect: false,
                     });
                 }
                 s => return Err(FetchError::fatal(status_error(s))),
@@ -546,6 +561,7 @@ impl HttpFetcher {
                         kind: FailKind::Transient,
                         error: EngineError::Http { status },
                         retry_after: retry_after(resp.headers()),
+                        connect: false,
                     });
                 }
                 s => return Err(FetchError::fatal(EngineError::Http { status: s })),
@@ -652,5 +668,40 @@ pub(crate) fn probe_info(
             .get(header::ACCEPT_RANGES)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.to_ascii_lowercase().contains("bytes")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn send_error(url: String) -> FetchError {
+        let e = reqwest::Client::new().get(url).send().await.unwrap_err();
+        map_send_error(e)
+    }
+
+    #[tokio::test]
+    async fn failing_to_connect_is_told_apart_from_a_reset() {
+        // Nothing listens on a port that was just freed: the connection is refused.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let refused = send_error(format!("http://127.0.0.1:{port}/")).await;
+        assert!(refused.connect, "{:?}", refused.error);
+
+        // A server that accepts and closes at once (a connection limit) is not a network
+        // failure.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                drop(sock);
+            }
+        });
+        let reset = send_error(format!("http://{addr}/")).await;
+        assert!(!reset.connect, "{:?}", reset.error);
+        assert_eq!(reset.kind, FailKind::MaybeRefused);
     }
 }

@@ -15,22 +15,38 @@
 //! An empty [`NetworkSet`] (the default) means "use the operating system's default route",
 //! exactly as before.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 use crate::limiter::RateLimiter;
 
-/// Consecutive connection failures after which a network is taken out of rotation.
+/// Consecutive failures to connect to a server after which a network is taken out of
+/// rotation for that server.
 const BENCH_AFTER_FAILURES: u32 = 3;
-/// How long a failing network is not given new connections.
+/// How long a failing network is not given new connections to that server.
 const BENCH_FOR: Duration = Duration::from_secs(30);
-/// A network that received data this recently works: its failed connections are the server's
-/// doing (a connection limit, a reset), not the network's.
-const WORKING_WITHIN: Duration = Duration::from_secs(3);
+
+/// The server a connection goes to (`host:port`): a network may reach one server and not
+/// another (an IPv6-only tether, a filtered network).
+pub(crate) fn server_of(url: &url::Url) -> String {
+    format!(
+        "{}:{}",
+        url.host_str().unwrap_or_default(),
+        url.port_or_known_default().unwrap_or_default()
+    )
+}
+
+/// How well a network reaches one server.
+#[derive(Debug, Default)]
+struct Reach {
+    failures: u32,
+    benched_until: Option<Instant>,
+}
 
 /// A network adapter of this computer, as reported by the operating system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,11 +151,8 @@ pub struct Network {
     limiter: Arc<RateLimiter>,
     received: AtomicU64,
     connections: AtomicUsize,
-    failures: AtomicU32,
-    benched_until: RwLock<Option<Instant>>,
-    /// When data last arrived, in ms since `created` (0 = never).
-    created: Instant,
-    last_received_ms: AtomicU64,
+    /// Failures to connect, per server (see [`server_of`]).
+    reach: Mutex<HashMap<String, Reach>>,
 }
 
 impl Network {
@@ -152,10 +165,7 @@ impl Network {
             limiter: Arc::new(RateLimiter::new(spec.speed_limit)),
             received: AtomicU64::new(0),
             connections: AtomicUsize::new(0),
-            failures: AtomicU32::new(0),
-            benched_until: RwLock::new(None),
-            created: Instant::now(),
-            last_received_ms: AtomicU64::new(0),
+            reach: Mutex::default(),
         }
     }
 
@@ -198,15 +208,6 @@ impl Network {
 
     pub(crate) fn add_received(&self, n: u64) {
         self.received.fetch_add(n, Ordering::Relaxed);
-        let ms = self.created.elapsed().as_millis() as u64;
-        self.last_received_ms.store(ms.max(1), Ordering::Relaxed);
-    }
-
-    fn received_within(&self, d: Duration, now: Instant) -> bool {
-        match self.last_received_ms.load(Ordering::Relaxed) {
-            0 => false,
-            ms => now.saturating_duration_since(self.created) <= Duration::from_millis(ms) + d,
-        }
     }
 
     /// Connections currently assigned to this network.
@@ -214,35 +215,53 @@ impl Network {
         self.connections.load(Ordering::Relaxed)
     }
 
-    /// Temporarily skipped for new connections after repeated connection failures.
+    /// Temporarily skipped for new connections to some server after failing to connect to
+    /// it repeatedly (no internet on this network?).
     pub fn is_failing(&self) -> bool {
-        self.is_benched(Instant::now())
+        let now = Instant::now();
+        self.reach
+            .lock()
+            .expect("network lock")
+            .values()
+            .any(|r| r.benched_until.is_some_and(|t| now < t))
     }
 
-    fn is_benched(&self, now: Instant) -> bool {
-        self.benched_until
-            .read()
+    /// Temporarily skipped for new connections to `server` (see [`server_of`]).
+    pub fn is_failing_for(&self, server: &str) -> bool {
+        self.is_benched_for(server, Instant::now())
+    }
+
+    fn is_benched_for(&self, server: &str, now: Instant) -> bool {
+        self.reach
+            .lock()
             .expect("network lock")
+            .get(server)
+            .and_then(|r| r.benched_until)
             .is_some_and(|t| now < t)
     }
 
-    /// A connection on this network received data: it works.
-    pub(crate) fn on_success(&self) {
-        if self.failures.swap(0, Ordering::AcqRel) > 0 {
-            *self.benched_until.write().expect("network lock") = None;
+    /// A request to `server` over this network got an answer: it reaches the server.
+    pub(crate) fn on_success(&self, server: &str) {
+        let mut reach = self.reach.lock().expect("network lock");
+        if !reach.is_empty() {
+            reach.remove(server);
         }
     }
 
-    /// A connection on this network could not connect. After a few failures in a row while
-    /// nothing arrives over it, the network gets no new connections for a while.
-    pub(crate) fn on_failure(&self) {
-        if self.received_within(WORKING_WITHIN, Instant::now()) {
-            return;
-        }
-        let n = self.failures.fetch_add(1, Ordering::AcqRel) + 1;
-        if n >= BENCH_AFTER_FAILURES {
-            tracing::info!(network = %self.interface, "network failing, benched");
-            *self.benched_until.write().expect("network lock") = Some(Instant::now() + BENCH_FOR);
+    /// A connection to `server` over this network could not be made. A server that accepts
+    /// the connection and then resets it is not counted: that is the server's doing (a
+    /// connection limit), not the network's. After a few failures in a row the network gets
+    /// no new connections to that server for a while.
+    pub(crate) fn on_connect_failure(&self, server: &str) {
+        let now = Instant::now();
+        let mut reach = self.reach.lock().expect("network lock");
+        // Forget servers whose bench ran out long ago, so the map stays small.
+        reach.retain(|_, r| r.benched_until.is_none_or(|t| now < t + BENCH_FOR));
+        let r = reach.entry(server.to_string()).or_default();
+        r.failures += 1;
+        if r.failures >= BENCH_AFTER_FAILURES {
+            tracing::info!(network = %self.interface, server, "cannot reach the server, benched");
+            r.benched_until = Some(now + BENCH_FOR);
         }
     }
 }
@@ -378,7 +397,6 @@ impl NetworkSet {
 
     /// Live statistics of every configured network.
     pub fn stats(&self) -> Vec<NetworkStats> {
-        let now = Instant::now();
         self.networks
             .read()
             .expect("networks lock")
@@ -387,24 +405,35 @@ impl NetworkSet {
                 interface: n.interface.clone(),
                 present: n.local_addr().is_some(),
                 enabled: n.is_enabled(),
-                failing: n.is_benched(now),
+                failing: n.is_failing(),
                 connections: n.connections() as u32,
                 received: n.received(),
             })
             .collect()
     }
 
-    /// Picks the network for a new connection: the usable network with the fewest
-    /// connections (ties go to the earlier one in the user's order). Falls back to benched
-    /// networks when every enabled one is failing. `None` = use the default route.
-    pub fn lease(&self) -> Option<NetworkLease> {
+    /// Whether an enabled network has a speed limit (tails are not raced then: duplicate
+    /// bytes would eat the capped budget).
+    pub fn any_capped(&self) -> bool {
+        self.networks
+            .read()
+            .expect("networks lock")
+            .iter()
+            .any(|n| n.is_enabled() && n.limiter.rate() != 0)
+    }
+
+    /// Picks the network for a new connection to `server`: the usable network with the
+    /// fewest connections (ties go to the earlier one in the user's order). Falls back to
+    /// benched networks when every enabled one fails for that server. `None` = use the
+    /// default route.
+    pub fn lease(&self, server: &str) -> Option<NetworkLease> {
         let now = Instant::now();
         let g = self.networks.read().expect("networks lock");
         let usable = |n: &&Arc<Network>| n.is_enabled() && n.local_addr().is_some();
         let pick = g
             .iter()
             .filter(usable)
-            .filter(|n| !n.is_benched(now))
+            .filter(|n| !n.is_benched_for(server, now))
             .min_by_key(|n| n.connections())
             .or_else(|| g.iter().filter(usable).min_by_key(|n| n.connections()))?
             .clone();
@@ -447,6 +476,8 @@ impl reqwest::dns::Resolve for FamilyResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const S: &str = "files.example:443";
 
     #[test]
     fn families_follow_the_adapter_addresses() {
@@ -496,13 +527,13 @@ mod tests {
     fn empty_set_uses_default_route() {
         let set = NetworkSet::default();
         assert!(!set.is_active());
-        assert!(set.lease().is_none());
+        assert!(set.lease(S).is_none());
     }
 
     #[test]
     fn leases_spread_evenly() {
         let set = set_with(&["a", "b"]);
-        let l: Vec<_> = (0..4).map(|_| set.lease().unwrap()).collect();
+        let l: Vec<_> = (0..4).map(|_| set.lease(S).unwrap()).collect();
         let on_a = l.iter().filter(|l| l.network().interface() == "a").count();
         assert_eq!(on_a, 2);
         drop(l);
@@ -514,19 +545,19 @@ mod tests {
         let set = set_with(&["a", "b"]);
         set.set_enabled("a", false);
         for _ in 0..3 {
-            assert_eq!(set.lease().unwrap().network().interface(), "b");
+            assert_eq!(set.lease(S).unwrap().network().interface(), "b");
         }
         set.set_enabled("a", true);
         let a = set.get("a").unwrap();
         for _ in 0..BENCH_AFTER_FAILURES {
-            a.on_failure();
+            a.on_connect_failure(S);
         }
-        let _hold = set.lease().unwrap();
-        assert_eq!(set.lease().unwrap().network().interface(), "b");
-        a.on_success();
+        let _hold = set.lease(S).unwrap();
+        assert_eq!(set.lease(S).unwrap().network().interface(), "b");
+        a.on_success(S);
         // With "b" holding more connections now, the recovered "a" is picked again.
-        let _b = set.lease().unwrap();
-        assert_eq!(set.lease().unwrap().network().interface(), "a");
+        let _b = set.lease(S).unwrap();
+        assert_eq!(set.lease(S).unwrap().network().interface(), "a");
     }
 
     #[test]
@@ -534,9 +565,9 @@ mod tests {
         let set = set_with(&["a"]);
         let a = set.get("a").unwrap();
         for _ in 0..BENCH_AFTER_FAILURES {
-            a.on_failure();
+            a.on_connect_failure(S);
         }
-        assert!(set.lease().is_some());
+        assert!(set.lease(S).is_some());
     }
 
     #[test]
@@ -557,26 +588,49 @@ mod tests {
     }
 
     #[test]
-    fn a_network_that_delivers_data_is_not_benched_for_refused_connections() {
-        let set = set_with(&["a"]);
+    fn a_network_is_benched_only_for_the_server_it_cannot_reach() {
+        let set = set_with(&["a", "b"]);
         let a = set.get("a").unwrap();
-        a.add_received(1);
-        for _ in 0..2 * BENCH_AFTER_FAILURES {
-            a.on_failure();
+        for _ in 0..BENCH_AFTER_FAILURES {
+            a.on_connect_failure("blocked.example:443");
         }
-        assert!(
-            !a.is_failing(),
-            "a server refusing extra connections is not a dead network"
+        assert!(a.is_failing_for("blocked.example:443") && a.is_failing());
+        assert!(!a.is_failing_for(S), "other servers still go over it");
+        assert_eq!(set.lease(S).unwrap().network().interface(), "a");
+        assert_eq!(
+            set.lease("blocked.example:443")
+                .unwrap()
+                .network()
+                .interface(),
+            "b"
         );
-        // Once nothing has arrived for a while, failures count again.
-        let later = Instant::now() + WORKING_WITHIN + Duration::from_secs(1);
-        assert!(!a.received_within(WORKING_WITHIN, later));
+    }
+
+    #[test]
+    fn a_capped_network_stops_tail_racing() {
+        let set = set_with(&["a", "b"]);
+        assert!(!set.any_capped());
+        set.set_speed_limit("b", 1000);
+        assert!(set.any_capped());
+        set.set_enabled("b", false);
+        assert!(
+            !set.any_capped(),
+            "a switched-off network gets no connections"
+        );
+    }
+
+    #[test]
+    fn servers_are_told_apart_by_host_and_port() {
+        let u = |s: &str| url::Url::parse(s).unwrap();
+        assert_eq!(server_of(&u("https://a.example/x")), "a.example:443");
+        assert_eq!(server_of(&u("http://a.example/x")), "a.example:80");
+        assert_eq!(server_of(&u("http://a.example:8080/")), "a.example:8080");
     }
 
     #[test]
     fn removed_networks_are_switched_off_for_their_connections() {
         let set = set_with(&["a", "b"]);
-        let held = set.lease().unwrap();
+        let held = set.lease(S).unwrap();
         assert_eq!(held.network().interface(), "a");
         set.configure(&[spec("b")]);
         assert!(
