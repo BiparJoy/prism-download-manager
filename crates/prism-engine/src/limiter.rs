@@ -57,7 +57,11 @@ impl RateLimiter {
 
     /// Changes the limit immediately; waiting tasks re-evaluate their wait.
     pub fn set_rate(&self, bytes_per_sec: u64) {
-        self.rate.store(bytes_per_sec, Ordering::Relaxed);
+        // Settings are re-applied periodically: the same rate must not restart the schedule
+        // (that would forgive the waiting connections and let the speed overshoot the cap).
+        if self.rate.swap(bytes_per_sec, Ordering::Relaxed) == bytes_per_sec {
+            return;
+        }
         *self.tat.lock().expect("limiter lock") = None;
         self.changed.notify_waiters();
     }
@@ -238,5 +242,27 @@ mod tests {
         l.set_rate(0);
         let waited = waiter.await.unwrap();
         assert!(waited < Duration::from_secs(2), "waited {waited:?}");
+    }
+
+    #[tokio::test]
+    async fn setting_the_same_rate_again_keeps_the_cap() {
+        let rate = 256 * 1024;
+        let l = Arc::new(RateLimiter::new(rate));
+        let again = l.clone();
+        let reapply = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                again.set_rate(rate);
+            }
+        });
+        let start = Instant::now();
+        let mut got = 0u64;
+        while start.elapsed() < Duration::from_secs(1) {
+            l.acquire(16384).await;
+            got += 16384;
+        }
+        reapply.abort();
+        // One second at the rate plus the initial burst (250 ms) and one chunk of slack.
+        assert!(got <= rate + rate / 4 + 2 * 16384, "got {got} bytes in 1 s");
     }
 }
