@@ -100,6 +100,27 @@ async fn wait_paused(core: &Core, id: &str) -> DownloadItem {
     }
 }
 
+/// Waits until the data allowance holds `id`: its job has ended and it waits as queued.
+async fn wait_held(core: &Core, id: &str) -> DownloadItem {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let details = core.item_details(id).expect("item exists");
+        let item = details.item;
+        let note = item.error.as_deref().unwrap_or("");
+        if details.progress.is_none() && item.status == Status::Queued && note.contains("allowance")
+        {
+            return item;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "not held: status {:?}, error {:?}",
+            item.status,
+            item.error
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn add_download_and_verify_content() {
     let server = TestServer::start(ServerConfig::default()).await.unwrap();
@@ -1404,20 +1425,17 @@ async fn data_allowance_pauses_downloads_and_blocks_new_ones() {
         )
         .unwrap();
     let id = &items[0].id;
-    let item = wait_paused(&core, id).await;
+    let item = wait_held(&core, id).await;
     assert!(item.downloaded < size);
-    assert!(
-        item.error.as_deref().unwrap_or("").contains("allowance"),
-        "error: {:?}",
-        item.error
-    );
+    assert!(item.resume.is_some(), "kept its resume point");
     let usage = core.data_usage();
     assert!(usage.exhausted);
     assert!(usage.used >= 2 << 20);
 
     // Starting again is refused while the allowance is used up...
     core.start_items(std::slice::from_ref(id));
-    assert_eq!(core.item(id).unwrap().status, Status::Paused);
+    assert_eq!(core.item(id).unwrap().status, Status::Queued);
+    assert!(core.item_details(id).unwrap().progress.is_none());
     // ...and the held download resumes by itself once there is room again.
     let mut rx = core.subscribe();
     core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
@@ -1457,9 +1475,8 @@ async fn switching_the_allowance_on_over_the_limit_pauses_running_downloads() {
     core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": true}}))
         .unwrap();
     assert!(core.data_usage().used >= 2 << 20, "usage kept");
-    let item = wait_paused(&core, id).await;
+    let item = wait_held(&core, id).await;
     assert!(item.downloaded < size);
-    assert!(item.error.as_deref().unwrap_or("").contains("allowance"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1518,7 +1535,7 @@ async fn a_queue_waits_for_the_allowance_instead_of_finishing() {
         .unwrap();
     let mut rx = core.subscribe();
     core.start_queue("main");
-    wait_paused(&core, &items[0].id).await;
+    wait_held(&core, &items[0].id).await;
     // Held, not done: the queue keeps running and its other downloads keep their place.
     let early = tokio::time::timeout(Duration::from_secs(4), async {
         loop {
@@ -1538,12 +1555,14 @@ async fn a_queue_waits_for_the_allowance_instead_of_finishing() {
     for item in &items[1..] {
         assert_eq!(core.item(&item.id).unwrap().status, Status::Queued);
     }
-    // Room again: the queue carries on by itself and finishes everything.
+    // Room again: the queue carries on by itself, one at a time, and finishes everything.
     core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
         .unwrap();
+    let mut max_active = 0;
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             match rx.recv().await {
+                Ok(CoreEvent::Progress(list)) => max_active = max_active.max(list.len()),
                 Ok(CoreEvent::QueueFinished { queue_id, .. }) if queue_id == "main" => break,
                 Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                 Err(e) => panic!("{e}"),
@@ -1552,6 +1571,7 @@ async fn a_queue_waits_for_the_allowance_instead_of_finishing() {
     })
     .await
     .expect("queue did not finish");
+    assert_eq!(max_active, 1, "the queue's limit holds when it resumes");
     for (i, item) in items.iter().enumerate() {
         let item = core.item(&item.id).unwrap();
         assert_eq!(item.status, Status::Completed);
@@ -1583,11 +1603,48 @@ async fn a_held_download_paused_on_purpose_stays_paused() {
         )
         .unwrap();
     let id = &items[0].id;
-    wait_paused(&core, id).await;
+    // Held downloads wait as queued, so the UI's Pause applies to them.
+    wait_held(&core, id).await;
     core.pause_items(std::slice::from_ref(id));
+    assert_eq!(core.item(id).unwrap().status, Status::Paused);
     core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
         .unwrap();
     // Two release ticks (every 2 s) later it is still paused.
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(core.item(id).unwrap().status, Status::Paused);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_a_queue_keeps_its_held_downloads_stopped() {
+    let server = TestServer::start(ServerConfig::default()).await.unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    core.update_settings(&serde_json::json!({
+        "dataAllowance": {"enabled": true, "period": "daily", "limit": 1 << 20},
+    }))
+    .unwrap();
+    let entries: Vec<NewItem> = (0..2)
+        .map(|i| NewItem {
+            url: server.url(&format!(
+                "/file/sq{i}.bin?size=4000000&seed={}&throttle=1048576",
+                60 + i
+            )),
+            ..Default::default()
+        })
+        .collect();
+    let items = core
+        .add_items(entries, StartMode::Queue("main".into()))
+        .unwrap();
+    core.start_queue("main");
+    wait_held(&core, &items[0].id).await;
+    core.stop_queue("main");
+    core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
+        .unwrap();
+    // Two release ticks later nothing has started by itself.
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    for item in &items {
+        let d = core.item_details(&item.id).unwrap();
+        assert!(d.progress.is_none(), "{:?} started", d.item.status);
+        assert!(!d.item.status.is_active() && d.item.status != Status::Queued);
+    }
 }

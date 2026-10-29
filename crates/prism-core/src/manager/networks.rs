@@ -1,6 +1,6 @@
 //! Multi-network downloads and the data allowance.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
@@ -164,7 +164,7 @@ impl Core {
             .unwrap_or_else(|| DataUsage::new(period, today()))
     }
 
-    pub(crate) fn load_allowance_held(db: &crate::db::Db) -> HashMap<String, bool> {
+    pub(crate) fn load_allowance_held(db: &crate::db::Db) -> HashSet<String> {
         db.get_setting("data_allowance_held")
             .ok()
             .flatten()
@@ -185,17 +185,16 @@ impl Core {
         }
     }
 
-    /// Remembers a download the used-up allowance keeps from running (`queued`: it waits in
-    /// its queue rather than paused).
-    pub(crate) fn hold(&self, id: &str, queued: bool) {
-        if self.0.allowance_held.lock().insert(id.to_string(), queued) != Some(queued) {
+    /// Remembers a download the used-up allowance keeps from running.
+    pub(crate) fn hold(&self, id: &str) {
+        if self.0.allowance_held.lock().insert(id.to_string()) {
             self.0.allowance_held_dirty.store(true, Ordering::Release);
         }
     }
 
     /// Forgets a held download (it was started, or paused on purpose).
     pub(crate) fn unhold(&self, id: &str) {
-        if self.0.allowance_held.lock().remove(id).is_some() {
+        if self.0.allowance_held.lock().remove(id) {
             self.0.allowance_held_dirty.store(true, Ordering::Release);
         }
     }
@@ -260,75 +259,94 @@ impl Core {
     }
 
     fn release_allowance_hold(&self) {
-        let held: Vec<(String, bool)> = self
-            .0
-            .allowance_held
-            .lock()
-            .iter()
-            .map(|(id, q)| (id.clone(), *q))
-            .collect();
-        let mut start = Vec::new();
-        for (id, queued) in held {
-            let status = {
-                let st = self.0.state.lock();
-                st.items.get(&id).filter(|i| !i.trashed).map(|i| i.status)
-            };
-            match status {
+        // Decided and taken out of the hold in one step, so a hold added meanwhile (a
+        // download started while the allowance ran out again) isn't lost.
+        let ready: Vec<(String, bool)> = {
+            let st = self.0.state.lock();
+            let mut held = self.0.allowance_held.lock();
+            let before = held.len();
+            let mut ready = Vec::new();
+            held.retain(|id| match st.items.get(id).filter(|i| !i.trashed) {
                 // Its pause is still on its way: resumed on a later tick.
-                Some(s) if s.is_active() => continue,
-                Some(Status::Paused | Status::Queued) => {
-                    self.with_item(&id, |i| {
-                        i.error = None;
-                        if queued {
-                            i.status = Status::Queued;
-                        }
-                    });
-                    if !queued && status == Some(Status::Paused) {
-                        start.push(id.clone());
-                    }
+                Some(i) if i.status.is_active() => true,
+                Some(i) if matches!(i.status, Status::Paused | Status::Queued) => {
+                    let in_running_queue = i
+                        .queue_id
+                        .as_ref()
+                        .is_some_and(|q| st.queues.iter().any(|x| &x.id == q && x.running));
+                    ready.push((id.clone(), in_running_queue));
+                    false
                 }
                 // Removed, finished or failed meanwhile.
-                _ => {}
+                _ => false,
+            });
+            if held.len() != before {
+                self.0.allowance_held_dirty.store(true, Ordering::Release);
             }
-            self.unhold(&id);
+            ready
+        };
+        for (id, _) in &ready {
+            self.with_item(id, |i| {
+                i.status = Status::Queued;
+                i.error = None;
+            });
         }
-        // Started directly; queued ones are picked up by their queue.
+        // A running queue starts its own within its limit; the rest start now.
+        let start: Vec<String> = ready
+            .into_iter()
+            .filter(|(_, in_queue)| !in_queue)
+            .map(|(id, _)| id)
+            .collect();
         self.start_items(&start);
     }
 
-    /// Pauses every running download because the allowance is used up.
+    /// Pauses every running download because the allowance is used up, and has held ones
+    /// whose pause came through wait as queued.
     pub(crate) fn hold_for_allowance(&self) {
-        let running: Vec<String> = {
+        let (running, parked) = {
             let st = self.0.state.lock();
             let mut held = self.0.allowance_held.lock();
             // Taken into the hold under the lock, so two ticks can't both pause the same ones.
-            // Downloads that are only post-processing (muxing, checksums) receive nothing.
-            let ids: Vec<String> = st
+            // Only downloads with a job can be paused (one still starting is caught on the
+            // next tick); ones that are only post-processing receive nothing.
+            let running: Vec<String> = st
                 .items
                 .values()
                 .filter(|i| {
                     matches!(
                         i.status,
                         Status::Connecting | Status::Downloading | Status::Retrying
-                    ) && !held.contains_key(&i.id)
+                    ) && st.jobs.contains_key(&i.id)
+                        && !held.contains(&i.id)
                 })
                 .map(|i| i.id.clone())
                 .collect();
-            held.extend(ids.iter().map(|id| (id.clone(), false)));
-            ids
+            held.extend(running.iter().cloned());
+            let parked: Vec<String> = held
+                .iter()
+                .filter(|id| {
+                    st.items
+                        .get(*id)
+                        .is_some_and(|i| i.status == Status::Paused)
+                })
+                .cloned()
+                .collect();
+            (running, parked)
         };
+        let note = self.allowance_note();
+        for id in &parked {
+            self.with_item(id, |i| {
+                i.status = Status::Queued;
+                i.error = Some(note.clone());
+            });
+        }
         if running.is_empty() {
             return;
         }
         self.0.allowance_held_dirty.store(true, Ordering::Release);
         self.pause_jobs(&running);
-        let note = self.allowance_note();
         for id in &running {
-            self.with_item(id, |i| {
-                if i.status == Status::Paused || i.status.is_active() {
-                    i.error = Some(note.clone());
-                }
-            });
+            self.with_item(id, |i| i.error = Some(note.clone()));
         }
         self.save_data_usage();
         self.emit(CoreEvent::Notify {

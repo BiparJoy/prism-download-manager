@@ -272,6 +272,7 @@ impl Core {
         };
         self.pause_items(&active);
         for item in waiting {
+            self.unhold(&item);
             self.with_item(&item, |i| i.status = Status::Idle);
         }
         self.save_queues();
@@ -363,7 +364,7 @@ impl Core {
                         && (i.status == Status::Queued
                             || i.status.is_active()
                             || st.jobs.contains_key(&i.id)
-                            || held.contains_key(&i.id))
+                            || held.contains(&i.id))
                 });
                 if !pending {
                     st.queue_was_busy.remove(&qid);

@@ -67,9 +67,10 @@ pub fn used_by_default(interface: &str) -> bool {
     // Windows lists adapters by their friendly name. Hyper-V's internal switches are
     // virtual, but an external switch ("vEthernet (External Switch)") is the computer's real
     // uplink: the physical adapter under it has no address of its own.
+    // shortcut: an external switch is recognised by its default name only; read the switch
+    // type (Get-VMSwitch) when custom-named ones turn out to be common.
     const CONTAINS: &[&str] = &[
-        "vethernet (default switch)",
-        "vethernet (nat)",
+        "vethernet",
         "virtualbox",
         "vmware",
         "hyper-v",
@@ -88,7 +89,8 @@ pub fn used_by_default(interface: &str) -> bool {
     // Unix adapter names have no spaces ("veth1a2b"); Windows friendly names may ("vEthernet
     // (External Switch)" must not count as a veth pair).
     let unix_virtual = !name.contains(' ') && PREFIXES.iter().any(|p| name.starts_with(p));
-    !unix_virtual && !CONTAINS.iter().any(|c| name.contains(c))
+    let hyperv_external = name.starts_with("vethernet") && name.contains("external");
+    !unix_virtual && (hyperv_external || !CONTAINS.iter().any(|c| name.contains(c)))
 }
 
 /// First day of the allowance period containing `date` (weeks start on Monday).
@@ -223,6 +225,7 @@ mod tests {
             "utun3",
             "vEthernet (WSL)",
             "vEthernet (Default Switch)",
+            "vEthernet (Internal)",
         ] {
             assert!(!used_by_default(name), "{name}");
         }

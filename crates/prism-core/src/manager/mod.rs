@@ -139,9 +139,9 @@ pub(crate) struct Inner {
     pub(crate) net_meters: Mutex<networks::NetMeters>,
     /// Bytes downloaded in the current data-allowance period.
     pub data_usage: Mutex<crate::networks::DataUsage>,
-    /// Downloads the used-up allowance holds (id → it was waiting in a queue), resumed when
-    /// the allowance has room again.
-    pub(crate) allowance_held: Mutex<HashMap<String, bool>>,
+    /// Downloads the used-up allowance holds (they wait as queued), resumed when the
+    /// allowance has room again.
+    pub(crate) allowance_held: Mutex<HashSet<String>>,
     /// `allowance_held` changed since it was last saved.
     pub(crate) allowance_held_dirty: std::sync::atomic::AtomicBool,
 }
@@ -586,19 +586,14 @@ impl Core {
             return Ok(());
         }
         if self.allowance_exhausted() {
-            // A queued download keeps its place (its queue isn't done, and starts it once the
-            // allowance has room); one started by hand waits paused.
-            let queued = item.status == Status::Queued;
-            self.hold(id, queued);
+            // It waits as queued (it can still be paused on purpose, and a queue keeps its
+            // place) until the allowance has room.
+            self.hold(id);
             let note = self.allowance_note();
             // The queue asks again every second: write only what changes.
-            if item.error.as_deref() != Some(note.as_str())
-                || (!queued && item.status != Status::Paused)
-            {
+            if item.status != Status::Queued || item.error.as_deref() != Some(note.as_str()) {
                 self.with_item(id, |i| {
-                    if !queued {
-                        i.status = Status::Paused;
-                    }
+                    i.status = Status::Queued;
                     i.error = Some(note);
                 });
             }
@@ -1163,7 +1158,8 @@ impl Core {
     pub async fn shutdown(&self) {
         let ids: Vec<String> = self.0.state.lock().jobs.keys().cloned().collect();
         self.checkpoint().await;
-        self.pause_items(&ids);
+        // Not a pause on purpose: held downloads stay held across a restart.
+        self.pause_jobs(&ids);
         // Give jobs a moment to flush and report.
         for _ in 0..20 {
             if self.0.state.lock().jobs.is_empty() {
