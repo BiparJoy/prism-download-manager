@@ -1,6 +1,7 @@
 //! Multi-network downloads and the data allowance.
 
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -176,9 +177,26 @@ impl Core {
         if let Ok(json) = serde_json::to_string(&usage) {
             let _ = self.0.db.set_setting("data_usage", &json);
         }
-        let held = self.0.allowance_held.lock().clone();
-        if let Ok(json) = serde_json::to_string(&held) {
-            let _ = self.0.db.set_setting("data_allowance_held", &json);
+        if self.0.allowance_held_dirty.swap(false, Ordering::AcqRel) {
+            let held = self.0.allowance_held.lock().clone();
+            if let Ok(json) = serde_json::to_string(&held) {
+                let _ = self.0.db.set_setting("data_allowance_held", &json);
+            }
+        }
+    }
+
+    /// Remembers a download the used-up allowance keeps from running (`queued`: it waits in
+    /// its queue rather than paused).
+    pub(crate) fn hold(&self, id: &str, queued: bool) {
+        if self.0.allowance_held.lock().insert(id.to_string(), queued) != Some(queued) {
+            self.0.allowance_held_dirty.store(true, Ordering::Release);
+        }
+    }
+
+    /// Forgets a held download (it was started, or paused on purpose).
+    pub(crate) fn unhold(&self, id: &str) {
+        if self.0.allowance_held.lock().remove(id).is_some() {
+            self.0.allowance_held_dirty.store(true, Ordering::Release);
         }
     }
 
@@ -242,51 +260,68 @@ impl Core {
     }
 
     fn release_allowance_hold(&self) {
-        let held = std::mem::take(&mut *self.0.allowance_held.lock());
-        if held.is_empty() {
-            return;
-        }
+        let held: Vec<(String, bool)> = self
+            .0
+            .allowance_held
+            .lock()
+            .iter()
+            .map(|(id, q)| (id.clone(), *q))
+            .collect();
         let mut start = Vec::new();
-        for (id, was_queued) in held {
-            // Downloads the user resumed, removed or finished meanwhile are left alone.
-            let waiting = self.with_item(&id, |i| {
-                let waiting = !i.trashed && i.status == Status::Paused;
-                if waiting {
-                    i.error = None;
-                    if was_queued {
-                        i.status = Status::Queued;
+        for (id, queued) in held {
+            let status = {
+                let st = self.0.state.lock();
+                st.items.get(&id).filter(|i| !i.trashed).map(|i| i.status)
+            };
+            match status {
+                // Its pause is still on its way: resumed on a later tick.
+                Some(s) if s.is_active() => continue,
+                Some(Status::Paused | Status::Queued) => {
+                    self.with_item(&id, |i| {
+                        i.error = None;
+                        if queued {
+                            i.status = Status::Queued;
+                        }
+                    });
+                    if !queued && status == Some(Status::Paused) {
+                        start.push(id.clone());
                     }
                 }
-                waiting
-            });
-            if waiting == Some(true) && !was_queued {
-                start.push(id);
+                // Removed, finished or failed meanwhile.
+                _ => {}
             }
+            self.unhold(&id);
         }
+        // Started directly; queued ones are picked up by their queue.
         self.start_items(&start);
-        self.save_data_usage();
     }
 
     /// Pauses every running download because the allowance is used up.
     pub(crate) fn hold_for_allowance(&self) {
-        let view = self.data_usage();
         let running: Vec<String> = {
             let st = self.0.state.lock();
-            let held = self.0.allowance_held.lock();
-            st.items
+            let mut held = self.0.allowance_held.lock();
+            // Taken into the hold under the lock, so two ticks can't both pause the same ones.
+            // Downloads that are only post-processing (muxing, checksums) receive nothing.
+            let ids: Vec<String> = st
+                .items
                 .values()
-                .filter(|i| i.status.is_active() && !held.contains_key(&i.id))
+                .filter(|i| {
+                    matches!(
+                        i.status,
+                        Status::Connecting | Status::Downloading | Status::Retrying
+                    ) && !held.contains_key(&i.id)
+                })
                 .map(|i| i.id.clone())
-                .collect()
+                .collect();
+            held.extend(ids.iter().map(|id| (id.clone(), false)));
+            ids
         };
         if running.is_empty() {
             return;
         }
-        self.0
-            .allowance_held
-            .lock()
-            .extend(running.iter().map(|id| (id.clone(), false)));
-        self.pause_items(&running);
+        self.0.allowance_held_dirty.store(true, Ordering::Release);
+        self.pause_jobs(&running);
         let note = self.allowance_note();
         for id in &running {
             self.with_item(id, |i| {
@@ -298,7 +333,10 @@ impl Core {
         self.save_data_usage();
         self.emit(CoreEvent::Notify {
             title: "Data allowance reached".into(),
-            body: format!("Downloads are paused until {}.", view.resets_on),
+            body: format!(
+                "Downloads are paused until {}.",
+                self.data_usage().resets_on
+            ),
         });
     }
 }

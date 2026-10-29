@@ -142,6 +142,8 @@ pub(crate) struct Inner {
     /// Downloads the used-up allowance holds (id → it was waiting in a queue), resumed when
     /// the allowance has room again.
     pub(crate) allowance_held: Mutex<HashMap<String, bool>>,
+    /// `allowance_held` changed since it was last saved.
+    pub(crate) allowance_held_dirty: std::sync::atomic::AtomicBool,
 }
 
 /// Cheap, cloneable handle to the application core.
@@ -252,6 +254,7 @@ impl Core {
             net_meters: Mutex::new(Default::default()),
             data_usage: Mutex::new(data_usage),
             allowance_held: Mutex::new(allowance_held),
+            allowance_held_dirty: Default::default(),
         }));
         core.apply_runtime_settings();
         core.spawn_background(outcome_rx);
@@ -583,17 +586,25 @@ impl Core {
             return Ok(());
         }
         if self.allowance_exhausted() {
-            self.0
-                .allowance_held
-                .lock()
-                .insert(id.to_string(), item.status == Status::Queued);
+            // A queued download keeps its place (its queue isn't done, and starts it once the
+            // allowance has room); one started by hand waits paused.
+            let queued = item.status == Status::Queued;
+            self.hold(id, queued);
             let note = self.allowance_note();
-            self.with_item(id, |i| {
-                i.status = Status::Paused;
-                i.error = Some(note);
-            });
+            // The queue asks again every second: write only what changes.
+            if item.error.as_deref() != Some(note.as_str())
+                || (!queued && item.status != Status::Paused)
+            {
+                self.with_item(id, |i| {
+                    if !queued {
+                        i.status = Status::Paused;
+                    }
+                    i.error = Some(note);
+                });
+            }
             return Ok(());
         }
+        self.unhold(id);
         self.with_item(id, |i| {
             i.status = Status::Connecting;
             i.error = None;
@@ -606,6 +617,15 @@ impl Core {
     }
 
     pub fn pause_items(&self, ids: &[String]) {
+        // Paused on purpose: not resumed when the data allowance has room again.
+        for id in ids {
+            self.unhold(id);
+        }
+        self.pause_jobs(ids);
+    }
+
+    /// Pauses running jobs; queued items leave their queue's waiting list.
+    pub(crate) fn pause_jobs(&self, ids: &[String]) {
         for id in ids {
             let job_exists = {
                 let st = self.0.state.lock();

@@ -1490,3 +1490,104 @@ async fn network_settings_reach_the_engine() {
     assert!(s.networks.enabled);
     assert_eq!(s.networks.entries.len(), 1, "entries survive the patch");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_queue_waits_for_the_allowance_instead_of_finishing() {
+    let server = TestServer::start(ServerConfig::default()).await.unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    core.update_settings(&serde_json::json!({
+        "dataAllowance": {"enabled": true, "period": "daily", "limit": 1 << 20},
+    }))
+    .unwrap();
+    let mut queue: Queue = core.queues().into_iter().find(|q| q.id == "main").unwrap();
+    queue.max_concurrent = 1;
+    core.upsert_queue(queue).unwrap();
+    let size = 1_500_000u64;
+    let entries: Vec<NewItem> = (0..3)
+        .map(|i| NewItem {
+            url: server.url(&format!(
+                "/file/aq{i}.bin?size={size}&seed={}&throttle=1048576",
+                50 + i
+            )),
+            ..Default::default()
+        })
+        .collect();
+    let items = core
+        .add_items(entries, StartMode::Queue("main".into()))
+        .unwrap();
+    let mut rx = core.subscribe();
+    core.start_queue("main");
+    wait_paused(&core, &items[0].id).await;
+    // Held, not done: the queue keeps running and its other downloads keep their place.
+    let early = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            match rx.recv().await {
+                Ok(CoreEvent::QueueFinished { .. }) => break,
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => std::future::pending().await,
+            }
+        }
+    })
+    .await;
+    assert!(
+        early.is_err(),
+        "the queue finished while downloads were held"
+    );
+    assert!(core.queues().iter().any(|q| q.id == "main" && q.running));
+    for item in &items[1..] {
+        assert_eq!(core.item(&item.id).unwrap().status, Status::Queued);
+    }
+    // Room again: the queue carries on by itself and finishes everything.
+    core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            match rx.recv().await {
+                Ok(CoreEvent::QueueFinished { queue_id, .. }) if queue_id == "main" => break,
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(e) => panic!("{e}"),
+            }
+        }
+    })
+    .await
+    .expect("queue did not finish");
+    for (i, item) in items.iter().enumerate() {
+        let item = core.item(&item.id).unwrap();
+        assert_eq!(item.status, Status::Completed);
+        assert_eq!(
+            sha256_file(&item.path()),
+            expected_sha256(50 + i as u64, size)
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_held_download_paused_on_purpose_stays_paused() {
+    let server = TestServer::start(ServerConfig::default()).await.unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    core.update_settings(&serde_json::json!({
+        "dataAllowance": {"enabled": true, "period": "daily", "limit": 1 << 20},
+    }))
+    .unwrap();
+    let size = 32u64 << 20;
+    let url = server.url(&format!("/file/keep.bin?size={size}&seed=43&throttle=1M"));
+    let items = core
+        .add_items(
+            vec![NewItem {
+                url,
+                ..Default::default()
+            }],
+            StartMode::Now,
+        )
+        .unwrap();
+    let id = &items[0].id;
+    wait_paused(&core, id).await;
+    core.pause_items(std::slice::from_ref(id));
+    core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
+        .unwrap();
+    // Two release ticks (every 2 s) later it is still paused.
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(core.item(id).unwrap().status, Status::Paused);
+}

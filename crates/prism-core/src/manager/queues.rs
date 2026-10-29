@@ -352,6 +352,8 @@ impl Core {
     fn detect_finished_queues(&self) {
         let finished: Vec<Queue> = {
             let mut st = self.0.state.lock();
+            // Downloads the data allowance holds are still to do.
+            let held = self.0.allowance_held.lock().clone();
             let mut done = Vec::new();
             let busy_ids: Vec<String> = st.queue_was_busy.iter().cloned().collect();
             for qid in busy_ids {
@@ -360,7 +362,8 @@ impl Core {
                         && !i.trashed
                         && (i.status == Status::Queued
                             || i.status.is_active()
-                            || st.jobs.contains_key(&i.id))
+                            || st.jobs.contains_key(&i.id)
+                            || held.contains_key(&i.id))
                 });
                 if !pending {
                     st.queue_was_busy.remove(&qid);
