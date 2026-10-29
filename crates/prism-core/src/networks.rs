@@ -8,7 +8,8 @@ use crate::settings::{AllowancePeriod, Networks};
 
 /// The engine's network list for these settings and the adapters present right now.
 /// Configured adapters that are missing stay in the list (they come back after sleep or when
-/// a phone is plugged in again); present adapters without an entry are used by default.
+/// a phone is plugged in again); present adapters without an entry are used when
+/// [`used_by_default`].
 pub fn engine_specs(settings: &Networks, present: &[NetworkInterface]) -> Vec<NetworkSpec> {
     if !settings.enabled {
         return Vec::new();
@@ -24,7 +25,7 @@ pub fn engine_specs(settings: &Networks, present: &[NetworkInterface]) -> Vec<Ne
         })
         .collect();
     for i in present {
-        if settings.entry(&i.name).is_none() {
+        if settings.entry(&i.name).is_none() && used_by_default(&i.name) {
             out.push(NetworkSpec {
                 interface: i.name.clone(),
                 enabled: true,
@@ -33,6 +34,55 @@ pub fn engine_specs(settings: &Networks, present: &[NetworkInterface]) -> Vec<Ne
         }
     }
     out
+}
+
+/// Whether an adapter without an entry is used. Virtual adapters (containers, VMs, VPN
+/// tunnels) usually have no internet path of their own, so they stay off until switched on.
+pub fn used_by_default(interface: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "docker",
+        "br-",
+        "virbr",
+        "veth",
+        "vnet",
+        "vmnet",
+        "vboxnet",
+        "lxc",
+        "lxd",
+        "cni",
+        "flannel",
+        "cali",
+        "podman",
+        "tun",
+        "tap",
+        "wg",
+        "utun",
+        "tailscale",
+        "zt",
+        "ipsec",
+        "awdl",
+        "llw",
+        "bridge",
+    ];
+    // Windows lists adapters by their friendly name.
+    const CONTAINS: &[&str] = &[
+        "vethernet",
+        "virtualbox",
+        "vmware",
+        "hyper-v",
+        "wsl",
+        "loopback",
+        "teredo",
+        "isatap",
+        "tailscale",
+        "zerotier",
+        "wireguard",
+        "openvpn",
+        "tap-windows",
+        "npcap",
+    ];
+    let name = interface.to_ascii_lowercase();
+    !PREFIXES.iter().any(|p| name.starts_with(p)) && !CONTAINS.iter().any(|c| name.contains(c))
 }
 
 /// First day of the allowance period containing `date` (weeks start on Monday).
@@ -154,5 +204,49 @@ mod tests {
         assert!(!specs[0].enabled);
         assert_eq!(specs[0].speed_limit, 7);
         assert!(specs[2].enabled);
+    }
+
+    #[test]
+    fn virtual_adapters_are_off_until_switched_on() {
+        for name in [
+            "docker0",
+            "br-1a2b",
+            "virbr0",
+            "tun0",
+            "wg0",
+            "utun3",
+            "vEthernet (WSL)",
+        ] {
+            assert!(!used_by_default(name), "{name}");
+        }
+        for name in [
+            "wlan0",
+            "eth0",
+            "enp3s0",
+            "en0",
+            "usb0",
+            "rndis0",
+            "Wi-Fi",
+            "Ethernet 2",
+        ] {
+            assert!(used_by_default(name), "{name}");
+        }
+        let mut s = Networks {
+            enabled: true,
+            ..Networks::default()
+        };
+        let present = [iface("eth0"), iface("docker0")];
+        let names = |s: &Networks| -> Vec<String> {
+            engine_specs(s, &present)
+                .into_iter()
+                .map(|n| n.interface)
+                .collect()
+        };
+        assert_eq!(names(&s), ["eth0"]);
+        s.entries.push(NetworkEntry {
+            interface: "docker0".into(),
+            ..NetworkEntry::default()
+        });
+        assert_eq!(names(&s), ["docker0", "eth0"], "switched on by the user");
     }
 }

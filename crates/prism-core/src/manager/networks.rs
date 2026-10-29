@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::Core;
 use crate::events::CoreEvent;
 use crate::model::Status;
-use crate::networks::{DataUsage, engine_specs, next_period_start};
+use crate::networks::{DataUsage, engine_specs, next_period_start, used_by_default};
 use crate::settings::{AllowancePeriod, NetworkEntry};
 
 /// One network as the Networks panel shows it.
@@ -88,6 +88,7 @@ impl Core {
             .map(|interface| {
                 let entry = settings.entry(&interface).cloned().unwrap_or(NetworkEntry {
                     interface: interface.clone(),
+                    enabled: used_by_default(&interface),
                     ..NetworkEntry::default()
                 });
                 let adapter = present.iter().find(|i| i.name == interface);
