@@ -163,11 +163,31 @@ impl Core {
             .unwrap_or_else(|| DataUsage::new(period, today()))
     }
 
+    pub(crate) fn load_allowance_held(db: &crate::db::Db) -> HashMap<String, bool> {
+        db.get_setting("data_allowance_held")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn save_data_usage(&self) {
         let usage = *self.0.data_usage.lock();
         if let Ok(json) = serde_json::to_string(&usage) {
             let _ = self.0.db.set_setting("data_usage", &json);
         }
+        let held = self.0.allowance_held.lock().clone();
+        if let Ok(json) = serde_json::to_string(&held) {
+            let _ = self.0.db.set_setting("data_allowance_held", &json);
+        }
+    }
+
+    /// The note on a download the allowance holds.
+    pub(crate) fn allowance_note(&self) -> String {
+        format!(
+            "Data allowance used up, resets on {}",
+            self.data_usage().resets_on
+        )
     }
 
     pub fn data_usage(&self) -> DataUsageView {
@@ -210,19 +230,64 @@ impl Core {
         }
     }
 
+    /// Runs every few seconds: holds what still runs while the allowance is used up (it was
+    /// just switched on or lowered below the usage), and resumes the held downloads once there
+    /// is room again (a new period, a higher limit, a reset, or the allowance switched off).
+    pub(crate) fn enforce_allowance(&self) {
+        if self.allowance_exhausted() {
+            self.hold_for_allowance();
+        } else {
+            self.release_allowance_hold();
+        }
+    }
+
+    fn release_allowance_hold(&self) {
+        let held = std::mem::take(&mut *self.0.allowance_held.lock());
+        if held.is_empty() {
+            return;
+        }
+        let mut start = Vec::new();
+        for (id, was_queued) in held {
+            // Downloads the user resumed, removed or finished meanwhile are left alone.
+            let waiting = self.with_item(&id, |i| {
+                let waiting = !i.trashed && i.status == Status::Paused;
+                if waiting {
+                    i.error = None;
+                    if was_queued {
+                        i.status = Status::Queued;
+                    }
+                }
+                waiting
+            });
+            if waiting == Some(true) && !was_queued {
+                start.push(id);
+            }
+        }
+        self.start_items(&start);
+        self.save_data_usage();
+    }
+
     /// Pauses every running download because the allowance is used up.
     pub(crate) fn hold_for_allowance(&self) {
         let view = self.data_usage();
         let running: Vec<String> = {
             let st = self.0.state.lock();
+            let held = self.0.allowance_held.lock();
             st.items
                 .values()
-                .filter(|i| i.status.is_active())
+                .filter(|i| i.status.is_active() && !held.contains_key(&i.id))
                 .map(|i| i.id.clone())
                 .collect()
         };
+        if running.is_empty() {
+            return;
+        }
+        self.0
+            .allowance_held
+            .lock()
+            .extend(running.iter().map(|id| (id.clone(), false)));
         self.pause_items(&running);
-        let note = format!("Data allowance used up, resets on {}", view.resets_on);
+        let note = self.allowance_note();
         for id in &running {
             self.with_item(id, |i| {
                 if i.status == Status::Paused || i.status.is_active() {

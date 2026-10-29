@@ -139,6 +139,9 @@ pub(crate) struct Inner {
     pub(crate) net_meters: Mutex<networks::NetMeters>,
     /// Bytes downloaded in the current data-allowance period.
     pub data_usage: Mutex<crate::networks::DataUsage>,
+    /// Downloads the used-up allowance holds (id → it was waiting in a queue), resumed when
+    /// the allowance has room again.
+    pub(crate) allowance_held: Mutex<HashMap<String, bool>>,
 }
 
 /// Cheap, cloneable handle to the application core.
@@ -205,6 +208,7 @@ impl Core {
             (ext_seen.next().flatten(), ext_seen.next().flatten());
 
         let data_usage = Core::load_data_usage(&db, settings.data_allowance.period);
+        let allowance_held = Core::load_allowance_held(&db);
         let state = State {
             settings,
             items,
@@ -247,6 +251,7 @@ impl Core {
             ext_install_type: Mutex::new(ext_install_type),
             net_meters: Mutex::new(Default::default()),
             data_usage: Mutex::new(data_usage),
+            allowance_held: Mutex::new(allowance_held),
         }));
         core.apply_runtime_settings();
         core.spawn_background(outcome_rx);
@@ -578,10 +583,14 @@ impl Core {
             return Ok(());
         }
         if self.allowance_exhausted() {
-            let resets = self.data_usage().resets_on;
+            self.0
+                .allowance_held
+                .lock()
+                .insert(id.to_string(), item.status == Status::Queued);
+            let note = self.allowance_note();
             self.with_item(id, |i| {
                 i.status = Status::Paused;
-                i.error = Some(format!("Data allowance used up, resets on {resets}"));
+                i.error = Some(note);
             });
             return Ok(());
         }
@@ -847,6 +856,7 @@ impl Core {
                 core.checkpoint().await;
                 // Adapters come and go (sleep, Wi-Fi changes, a phone plugged in).
                 core.apply_networks();
+                core.enforce_allowance();
                 core.save_data_usage();
             }
         });

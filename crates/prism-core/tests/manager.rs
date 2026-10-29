@@ -1418,14 +1418,48 @@ async fn data_allowance_pauses_downloads_and_blocks_new_ones() {
     // Starting again is refused while the allowance is used up...
     core.start_items(std::slice::from_ref(id));
     assert_eq!(core.item(id).unwrap().status, Status::Paused);
-    // ...and works after a reset.
-    assert!(!core.reset_data_usage().exhausted);
+    // ...and the held download resumes by itself once there is room again.
+    let mut rx = core.subscribe();
     core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": false}}))
         .unwrap();
-    let mut rx = core.subscribe();
-    core.start_items(std::slice::from_ref(id));
     let path = wait_completed(&mut rx, id).await;
     assert_eq!(sha256_file(&path), expected_sha256(41, size));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_the_allowance_on_over_the_limit_pauses_running_downloads() {
+    let server = TestServer::start(ServerConfig::default()).await.unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    // The period is set first: changing it starts a new period, which would reset the usage.
+    core.update_settings(&serde_json::json!({
+        "dataAllowance": {"enabled": false, "period": "daily", "limit": 1 << 20},
+    }))
+    .unwrap();
+    let size = 32u64 << 20;
+    let url = server.url(&format!("/file/over.bin?size={size}&seed=42&throttle=1M"));
+    let items = core
+        .add_items(
+            vec![NewItem {
+                url,
+                ..Default::default()
+            }],
+            StartMode::Now,
+        )
+        .unwrap();
+    let id = &items[0].id;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while core.data_usage().used < 2 << 20 {
+        assert!(tokio::time::Instant::now() < deadline, "no progress");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Already over the new limit when it is switched on: nothing crosses it any more.
+    core.update_settings(&serde_json::json!({"dataAllowance": {"enabled": true}}))
+        .unwrap();
+    assert!(core.data_usage().used >= 2 << 20, "usage kept");
+    let item = wait_paused(&core, id).await;
+    assert!(item.downloaded < size);
+    assert!(item.error.as_deref().unwrap_or("").contains("allowance"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
