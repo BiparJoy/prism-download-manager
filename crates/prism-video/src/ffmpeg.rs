@@ -88,6 +88,27 @@ pub struct PostProcess {
     pub duration: Option<f64>,
     /// Delete the input files after success.
     pub delete_inputs: bool,
+    /// Only a part of the video, cut out of the downloaded pieces.
+    #[serde(default)]
+    pub cut: Option<Cut>,
+}
+
+/// A part of the video cut out of streams that were downloaded only around it: each starts on
+/// the keyframe before the part, and ffmpeg starts the output on the exact frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cut {
+    /// Seconds into the video where the part starts.
+    pub start: f64,
+    /// Seconds.
+    pub length: f64,
+    /// Seconds from the start of the main input (the video, or the audio source of an audio
+    /// output) to the part; set by the core once it knows where the pieces start.
+    #[serde(default)]
+    pub main_offset: f64,
+    /// The same for the separate audio input.
+    #[serde(default)]
+    pub audio_offset: f64,
 }
 
 impl PostProcess {
@@ -120,6 +141,9 @@ pub struct FfmpegInputs {
     pub thumbnail: Option<PathBuf>,
     /// FFMETADATA file (global metadata and/or chapters).
     pub ffmetadata: Option<PathBuf>,
+    /// For a part ([`PostProcess::cut`]): the arguments that encode the video again, so it
+    /// starts on the exact frame (see [`cut_encoder`]). Empty: the video is copied.
+    pub video_encoder: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +270,23 @@ fn s(v: impl Into<String>) -> String {
     v.into()
 }
 
+/// `-ss <offset> -t <length>` before an input a part is cut out of (nothing for a whole video).
+fn cut_input(cut: Option<&Cut>, offset: impl Fn(&Cut) -> f64) -> Vec<String> {
+    cut.map(|c| {
+        vec![
+            s("-ss"),
+            format!("{:.3}", offset(c).max(0.0)),
+            s("-t"),
+            format!("{:.3}", c.length),
+        ]
+    })
+    .unwrap_or_default()
+}
+
+fn strs(v: &[String]) -> Vec<&str> {
+    v.iter().map(String::as_str).collect()
+}
+
 /// Build the ffmpeg command line for `job`. Pure function (unit tested).
 pub fn build_ffmpeg_args(job: &PostProcess, inp: &FfmpegInputs, out_tmp: &Path) -> Vec<String> {
     let mut a: Vec<String> = vec![
@@ -267,9 +308,13 @@ pub fn build_ffmpeg_args(job: &PostProcess, inp: &FfmpegInputs, out_tmp: &Path) 
         idx - 1
     };
 
+    let cut = job.cut.as_ref();
+    let main_cut = cut_input(cut, |c| c.main_offset);
+    let audio_cut = cut_input(cut, |c| c.audio_offset);
+
     if let Some(conv) = &job.audio_conversion {
         // ---------------- audio-only ----------------
-        let src = add_input(&mut a, &inp.main, &[]);
+        let src = add_input(&mut a, &inp.main, &strs(&main_cut));
         let thumb_ok = matches!(
             conv.format,
             AudioFormat::Mp3 | AudioFormat::M4a | AudioFormat::Flac
@@ -354,8 +399,11 @@ pub fn build_ffmpeg_args(job: &PostProcess, inp: &FfmpegInputs, out_tmp: &Path) 
 
     // ---------------- video ----------------
     let container = job.container;
-    let v = add_input(&mut a, &inp.main, &[]);
-    let au = inp.audio.as_ref().map(|p| add_input(&mut a, p, &[]));
+    let v = add_input(&mut a, &inp.main, &strs(&main_cut));
+    let au = inp
+        .audio
+        .as_ref()
+        .map(|p| add_input(&mut a, p, &strs(&audio_cut)));
     let subs: Vec<(usize, Option<String>, Option<String>)> = if job.embed_subtitles {
         inp.subtitles
             .iter()
@@ -386,6 +434,11 @@ pub fn build_ffmpeg_args(job: &PostProcess, inp: &FfmpegInputs, out_tmp: &Path) 
         a.extend([s("-map"), format!("{t}:0")]);
     }
     a.extend([s("-c"), s("copy")]);
+    if cut.is_some() {
+        // The part starts on the exact frame: its video is encoded again (audio frames last a
+        // few milliseconds, so copying them is exact already).
+        a.extend(inp.video_encoder.iter().cloned());
+    }
     if !subs.is_empty() {
         let codec = match container {
             Container::Mp4 => "mov_text",
@@ -588,6 +641,43 @@ pub(crate) async fn prepare_thumbnail(
     Ok((out, true))
 }
 
+/// How a part's video is encoded again so that it starts on the exact frame: with x264 (VP9 for
+/// WebM), set for speed at a quality close to the source. With neither in this ffmpeg, nothing:
+/// the video is copied and starts on the keyframe just before the part.
+pub(crate) async fn cut_encoder(ffmpeg: &Path, container: Container) -> Vec<String> {
+    let list = crate::media::encoders(ffmpeg).await;
+    let has = |name: &str| {
+        list.as_deref()
+            .is_some_and(|l| crate::media::has_encoder(l, name))
+    };
+    let args: &[&str] = match container {
+        Container::Webm if has("libvpx-vp9") => &[
+            "-c:v:0",
+            "libvpx-vp9",
+            "-deadline:v:0",
+            "realtime",
+            "-cpu-used:v:0",
+            "8",
+            "-row-mt:v:0",
+            "1",
+            "-crf:v:0",
+            "32",
+            "-b:v:0",
+            "0",
+        ],
+        Container::Mp4 | Container::Mkv if has("libx264") => &[
+            "-c:v:0",
+            "libx264",
+            "-preset:v:0",
+            "veryfast",
+            "-crf:v:0",
+            "20",
+        ],
+        _ => &[],
+    };
+    args.iter().map(|x| x.to_string()).collect()
+}
+
 /// Full post-processing run. `client` is used for SponsorBlock.
 pub(crate) async fn postprocess(
     ffmpeg: &Path,
@@ -699,9 +789,15 @@ pub(crate) async fn postprocess(
         subtitles: subtitles.clone(),
         thumbnail: thumbnail.clone(),
         ffmetadata: ffmeta,
+        video_encoder: match &job.cut {
+            Some(_) if !audio_only => cut_encoder(ffmpeg, job.container).await,
+            _ => Vec::new(),
+        },
     };
     let args = build_ffmpeg_args(&job_eff, &inputs, &out_tmp);
-    let stage = if audio_only {
+    let stage = if job.cut.is_some() {
+        Stage::Cutting
+    } else if audio_only {
         Stage::ExtractingAudio
     } else {
         Stage::Merging

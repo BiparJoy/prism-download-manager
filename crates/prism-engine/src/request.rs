@@ -195,6 +195,10 @@ pub struct DownloadRequest {
     /// being saved under that name.
     #[serde(default)]
     pub expect_file: bool,
+    /// Only bytes `[from, to)` of the resource: they are saved as the whole file (the pieces of a
+    /// video around a part of it). The server must answer range requests.
+    #[serde(default)]
+    pub window: Option<(u64, u64)>,
 }
 
 impl DownloadRequest {
@@ -223,6 +227,7 @@ impl DownloadRequest {
             max_retries: None,
             max_request_size: None,
             expect_file: false,
+            window: None,
         }
     }
 }

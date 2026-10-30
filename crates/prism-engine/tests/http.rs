@@ -224,6 +224,59 @@ async fn redirect_chain_is_followed_and_final_url_reused() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_byte_window_is_saved_as_the_whole_file() {
+    let srv = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let size = 6 * MIB;
+    let (from, to) = (MIB + 12_345, 5 * MIB + 777);
+    let mut req = request(
+        &srv.url(&format!("/file/w.bin?size={size}&seed=41")),
+        dir.path(),
+        4,
+    );
+    // Small requests (like YouTube's 10 MiB chunks), so the window is fetched in many ranges.
+    req.max_request_size = Some(256 * 1024);
+    req.window = Some((from, to));
+    let h = engine().start(req, None, vec![]);
+    let done = wait(&h, 60).await.unwrap();
+    assert_eq!(done.size, to - from);
+    assert!(
+        std::fs::read(&done.path).unwrap() == expected_bytes(41, from..to),
+        "the saved file is not the window's bytes"
+    );
+    // Every request asked for bytes inside the window, over several connections.
+    let ranges: Vec<(u64, u64)> = srv
+        .stats()
+        .requests
+        .iter()
+        .filter(|r| r.uri.starts_with("/file/w.bin"))
+        .map(|r| {
+            let v = r.range.as_deref().expect("a range request");
+            let (a, b) = v.trim_start_matches("bytes=").split_once('-').unwrap();
+            (a.parse().unwrap(), b.parse().unwrap())
+        })
+        .collect();
+    assert!(ranges.len() > 4, "{ranges:?}");
+    assert!(
+        ranges.iter().all(|&(a, b)| a >= from && b < to),
+        "{ranges:?}"
+    );
+
+    // A server that ignores ranges would send the whole file: that's an error, not a file.
+    let mut req = request(
+        &srv.url(&format!("/file/w2.bin?size={size}&seed=42&ranges=0")),
+        dir.path(),
+        4,
+    );
+    req.window = Some((from, to));
+    let h = engine().start(req, None, vec![]);
+    assert!(matches!(
+        wait(&h, 60).await,
+        Err(EngineError::RangeNotSupported)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn expired_signed_redirect_target_falls_back_to_original_url() {
     let srv = default_server().await;
     let dir = tempfile::tempdir().unwrap();

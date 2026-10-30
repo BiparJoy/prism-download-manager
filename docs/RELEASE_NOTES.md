@@ -1,7 +1,21 @@
-# Prism 1.2.1 — One beam. Many rays.
+# Prism 1.2.2 — One beam. Many rays.
 
 A fast, open-source download manager for Windows, Linux and macOS, with browser integration
 and video downloads.
+
+## What's new in 1.2.2
+
+* **Parts of videos download much faster.** *Only a part* had ffmpeg fetch the part over a single
+  connection, which YouTube slows down. Prism now reads the index at the start of the video,
+  downloads only the pieces around the part over several connections, and cuts it out on the
+  exact frame. A minute of 1080p60 takes about 10 seconds instead of 25–30, and the difference
+  grows with 4K and slower connections. A video without such an index (some sites) is cut the
+  way it was before.
+* **Updating on Windows no longer stops with an error.** With a browser open, the update could
+  fail to replace the browser helper (`prism-native-host.exe`), which the browser starts again
+  right after the installer stops it, and showed *Error opening file for writing*. The installer
+  now moves the running helper aside and puts the new one in its place; the old copy is removed
+  with the next update.
 
 ## What's new in 1.2.1
 

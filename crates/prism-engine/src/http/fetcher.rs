@@ -182,7 +182,54 @@ impl HttpFetcher {
 
     /// Sends one request, transparently answering Basic/Digest challenges and running the
     /// NTLM handshake. A remaining `401` is returned to the caller.
+    ///
+    /// With a byte window ([`crate::DownloadRequest::window`]) the window is the file: the range
+    /// asked for counts from its first byte, and the `Content-Range` of the answer is turned into
+    /// the same terms (the window's length as the size), so the rest of the engine sees a file
+    /// of that length.
     pub(crate) async fn send(
+        &mut self,
+        url: &Url,
+        range: Option<(u64, Option<u64>)>,
+        if_range: Option<&str>,
+    ) -> Result<reqwest::Response, FetchError> {
+        let Some((w0, w1)) = self.ctx.window else {
+            return self.send_raw(url, range, if_range).await;
+        };
+        let (from, to) = range.unwrap_or((0, None));
+        let a = w0.saturating_add(from);
+        let b = to.map_or(w1, |t| w0.saturating_add(t).min(w1));
+        if a >= b {
+            return Err(FetchError::fatal(EngineError::network(
+                "a range outside the part of the file",
+            )));
+        }
+        let mut resp = self.send_raw(url, Some((a, Some(b))), if_range).await?;
+        match resp.status().as_u16() {
+            // The whole file instead of the bytes asked for.
+            200 if if_range.is_some() => Err(FetchError::fatal(EngineError::ValidatorMismatch)),
+            200 => Err(FetchError::fatal(EngineError::RangeNotSupported)),
+            206 => {
+                let cr = header_string(resp.headers(), header::CONTENT_RANGE)
+                    .and_then(|v| parse_content_range(&v));
+                match cr {
+                    Some((x, y, _)) if x >= w0 && y < w1 => {
+                        let v = format!("bytes {}-{}/{}", x - w0, y - w0, w1 - w0);
+                        if let Ok(v) = HeaderValue::from_str(&v) {
+                            resp.headers_mut().insert(header::CONTENT_RANGE, v);
+                        }
+                        Ok(resp)
+                    }
+                    _ => Err(FetchError::transient(EngineError::network(
+                        "the server sent bytes outside the part of the file",
+                    ))),
+                }
+            }
+            _ => Ok(resp),
+        }
+    }
+
+    async fn send_raw(
         &mut self,
         url: &Url,
         range: Option<(u64, Option<u64>)>,

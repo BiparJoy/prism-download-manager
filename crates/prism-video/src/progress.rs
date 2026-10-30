@@ -28,6 +28,8 @@ pub enum Stage {
     Starting,
     Downloading,
     Merging,
+    /// Cutting a part of the video out of the downloaded pieces.
+    Cutting,
     ExtractingAudio,
     Converting,
     EmbeddingSubtitles,

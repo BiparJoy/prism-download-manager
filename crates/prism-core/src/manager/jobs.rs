@@ -967,16 +967,53 @@ impl VideoJob {
             item.connections.max(1)
         };
 
+        // Only a part: each stream's pieces around it, found in the index at its start.
+        let pieces = match plan.post.cut.clone() {
+            Some(cut) => {
+                self.set(|s| s.detail = Some("Finding the part".into()));
+                let found = tokio::select! {
+                    r = find_part(core, &plan, &cut, &temp) => r?,
+                    _ = self.cancel.cancelled() => return Err(anyhow!("stopped")),
+                };
+                let offset = |role: StreamRole| {
+                    plan.streams
+                        .iter()
+                        .find(|s| s.role == role)
+                        .and_then(|s| found.get(&s.file_name))
+                        .map(|p| (cut.start - p.start).max(0.0))
+                };
+                let (video, audio, muxed) = (
+                    offset(StreamRole::Video),
+                    offset(StreamRole::Audio),
+                    offset(StreamRole::Muxed),
+                );
+                let audio_only = plan.post.audio_conversion.is_some();
+                if let Some(c) = plan.post.cut.as_mut() {
+                    if audio_only {
+                        c.main_offset = audio.or(muxed).or(video).unwrap_or(0.0);
+                    } else {
+                        c.main_offset = video.or(muxed).unwrap_or(0.0);
+                        c.audio_offset = audio.unwrap_or(0.0);
+                    }
+                }
+                found
+            }
+            None => HashMap::new(),
+        };
+
         let mut handles = Vec::new();
         let mut optional = Vec::new();
         for s in &plan.streams {
             let Ok(url) = Url::parse(&s.url) else {
                 continue;
             };
+            let piece = pieces.get(&s.file_name);
             let mut req = DownloadRequest::new(url.clone(), temp.clone());
             req.headers = s.headers.clone();
-            req.destination.file_name = Some(s.file_name.clone());
+            req.destination.file_name =
+                Some(piece.map_or_else(|| s.file_name.clone(), |p| p.body.clone()));
             req.destination.conflict = ConflictPolicy::Overwrite;
+            req.window = piece.map(|p| (p.from, p.to));
             req.connections = if matches!(s.role, StreamRole::Subtitle | StreamRole::Thumbnail) {
                 1
             } else {
@@ -985,7 +1022,8 @@ impl VideoJob {
             req.max_request_size = s.chunk_size;
             req.speed_limit = item.speed_limit;
             req.proxy = Some(proxy_config(&settings));
-            let resume = stored.get(&s.file_name).cloned().map(|st| st.with_url(url));
+            let key = piece.map_or(&s.file_name, |p| &p.body);
+            let resume = stored.get(key).cloned().map(|st| st.with_url(url));
             let h = core.0.engine.start(req, resume, limiters_for(core, item));
             if s.optional {
                 optional.push(h.clone());
@@ -1016,9 +1054,23 @@ impl VideoJob {
         }
         self.handles.lock().clear();
 
+        // Each part's stream file: the stream's header, then its pieces.
+        for (name, p) in &pieces {
+            join_piece(&temp, name, p)
+                .await
+                .with_context(|| format!("assembling {name}"))?;
+        }
+
         self.set(|s| {
             s.status = Status::Processing;
-            s.detail = Some("Muxing with ffmpeg".into());
+            s.detail = Some(
+                if pieces.is_empty() {
+                    "Muxing with ffmpeg"
+                } else {
+                    "Cutting the part"
+                }
+                .into(),
+            );
             s.speed = 0;
         });
         plan.post.set_input_dir(&temp);
@@ -1100,9 +1152,111 @@ impl VideoJob {
     }
 }
 
+/// A part's piece of one stream: the bytes around the part, and the stream's header that makes
+/// them a playable file.
+struct PartPiece {
+    /// The stream's header (see [`prism_video::index::MediaIndex::init`]).
+    init: Vec<u8>,
+    /// Bytes `[from, to)` of the stream.
+    from: u64,
+    to: u64,
+    /// Seconds at which the pieces start (on a keyframe, at or before the part).
+    start: f64,
+    /// The temp file the bytes are downloaded to (named after the range, so a resumed download
+    /// only continues the same bytes).
+    body: String,
+}
+
+/// Where the part sits in each media stream of the plan, by the stream's file name. A stream
+/// without an index at its start is an error: the caller goes back to yt-dlp.
+async fn find_part(
+    core: &Core,
+    plan: &prism_video::AcceleratedPlan,
+    cut: &prism_video::Cut,
+    temp: &Path,
+) -> Result<HashMap<String, PartPiece>> {
+    use prism_video::index::{self, IndexError};
+    let settings = core.settings();
+    let engine_err = |e: EngineError| anyhow!("{}", e.user_message());
+    let mut out = HashMap::new();
+    for s in &plan.streams {
+        if !matches!(
+            s.role,
+            StreamRole::Video | StreamRole::Audio | StreamRole::Muxed
+        ) {
+            continue;
+        }
+        let url = Url::parse(&s.url).context("stream URL")?;
+        let mut req = DownloadRequest::new(url, temp.to_path_buf());
+        req.headers = s.headers.clone();
+        req.proxy = Some(proxy_config(&settings));
+        let mut file = core.0.engine.remote_file(&req).map_err(engine_err)?;
+        let mut head = file.read(0, index::HEAD).await.map_err(engine_err)?;
+        let ix = loop {
+            match index::parse(&head, file.size()) {
+                Ok(ix) => break ix,
+                Err(IndexError::NeedMore(n)) if n <= index::MAX_HEAD && n > head.len() as u64 => {
+                    let more = file
+                        .read(head.len() as u64, n - head.len() as u64)
+                        .await
+                        .map_err(engine_err)?;
+                    if more.is_empty() {
+                        return Err(anyhow!("the stream ends before its index"));
+                    }
+                    head.extend_from_slice(&more);
+                }
+                Err(e) => return Err(anyhow!("{e}")),
+            }
+        };
+        let span = ix
+            .span(cut.start, cut.start + cut.length)
+            .ok_or_else(|| anyhow!("the part is not in the stream's index"))?;
+        tracing::info!(
+            "part {:.2}-{:.2} s: {} bytes {}-{} ({:.1} of {:.1} MB), from {:.2} s",
+            cut.start,
+            cut.start + cut.length,
+            s.file_name,
+            span.from,
+            span.to,
+            (span.to - span.from) as f64 / 1e6,
+            file.size().unwrap_or(0) as f64 / 1e6,
+            span.start
+        );
+        out.insert(
+            s.file_name.clone(),
+            PartPiece {
+                init: ix.init,
+                from: span.from,
+                to: span.to,
+                start: span.start,
+                body: format!("{}.{}-{}.piece", s.file_name, span.from, span.to),
+            },
+        );
+    }
+    if out.is_empty() {
+        return Err(anyhow!("no stream to cut the part from"));
+    }
+    Ok(out)
+}
+
+/// Writes `temp/name`: the stream's header followed by its downloaded pieces.
+async fn join_piece(temp: &Path, name: &str, p: &PartPiece) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let body = temp.join(&p.body);
+    let mut out = tokio::fs::File::create(temp.join(name)).await?;
+    out.write_all(&p.init).await?;
+    let mut src = tokio::fs::File::open(&body).await?;
+    tokio::io::copy(&mut src, &mut out).await?;
+    out.flush().await?;
+    drop(src);
+    let _ = tokio::fs::remove_file(&body).await;
+    Ok(())
+}
+
 fn stage_label(stage: Stage) -> &'static str {
     match stage {
         Stage::Merging => "Merging video and audio",
+        Stage::Cutting => "Cutting the part",
         Stage::ExtractingAudio => "Extracting audio",
         Stage::Converting => "Converting",
         Stage::EmbeddingSubtitles => "Embedding subtitles",

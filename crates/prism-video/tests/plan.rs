@@ -425,19 +425,45 @@ fn ytdlp_args(v: &prism_video::VideoInfo, c: &Choice, o: &OutputOptions) -> Stri
 }
 
 #[test]
-fn a_part_is_cut_by_ytdlp_on_exact_frames() {
+fn a_part_is_downloaded_by_the_engine_and_cut_by_ffmpeg() {
+    let v = video("youtube_bbb.json");
+    let c = choice(&v, "v1080p60");
+    let o = OutputOptions {
+        embed_subtitles: true,
+        write_subtitles: true,
+        embed_chapters: true,
+        ..part(83.0, 165.0)
+    };
+    // The core downloads only the pieces around the part (over many connections) and ffmpeg
+    // cuts it out of them.
+    assert!(accelerated_blocker(&v, c, &o).is_none());
+    let Plan::Accelerated(p) = plan(&v, c, &o, &RequestContext::default(), None, true, 8) else {
+        panic!("expected the accelerated plan")
+    };
+    let cut = p.post.cut.as_ref().expect("a cut");
+    assert_eq!((cut.start, cut.length), (83.0, 82.0));
+    assert_eq!(p.post.duration, Some(82.0));
+    let roles: Vec<StreamRole> = p.streams.iter().map(|s| s.role).collect();
+    assert!(roles.contains(&StreamRole::Video) && roles.contains(&StreamRole::Audio));
+    // Subtitles and chapters are timed to the whole video: a part gets none.
+    assert!(!roles.contains(&StreamRole::Subtitle), "{roles:?}");
+    assert!(!p.post.embed_subtitles && !p.post.write_subtitles);
+    assert!(!p.post.embed_chapters && p.post.chapters.is_empty());
+    // The whole video has no cut.
+    let Plan::Accelerated(w) = plan(&v, c, &opts(), &RequestContext::default(), None, true, 8)
+    else {
+        panic!("expected the accelerated plan")
+    };
+    assert!(w.post.cut.is_none());
+}
+
+#[test]
+fn a_part_falls_back_to_ytdlp_cutting_on_exact_frames() {
     let v = video("youtube_bbb.json");
     let c = choice(&v, "v1080p60");
     let o = part(83.0, 165.0);
-    // The whole 1080p file would be fetched for a minute of it: yt-dlp has ffmpeg cut it.
-    assert!(accelerated_blocker(&v, c, &opts()).is_none());
-    assert_eq!(
-        accelerated_blocker(&v, c, &o).as_deref(),
-        Some("part of the video")
-    );
-    let Plan::YtDlp(job) = plan(&v, c, &o, &RequestContext::default(), None, true, 8) else {
-        panic!("expected yt-dlp")
-    };
+    // A stream without an index at its start: yt-dlp has ffmpeg fetch and cut the part.
+    let job = plan_ytdlp(&v, c, &o, &RequestContext::default(), 8, "x".into());
     assert_eq!(job.section, Some(Section::new(83.0, 165.0)));
     let a = job.args.join(" ");
     assert!(

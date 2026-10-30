@@ -15,6 +15,7 @@
 pub mod choices;
 pub mod error;
 pub mod ffmpeg;
+pub mod index;
 pub mod media;
 pub mod model;
 pub mod plan;
@@ -31,7 +32,7 @@ use std::sync::{Arc, RwLock};
 
 pub use error::{Result, VideoError};
 pub use ffmpeg::{
-    AudioConversion, FfmpegInputs, Metadata, PostInput, PostProcess, SponsorBlockRequest,
+    AudioConversion, Cut, FfmpegInputs, Metadata, PostInput, PostProcess, SponsorBlockRequest,
 };
 pub use model::*;
 pub use plan::{AcceleratedPlan, Plan, StreamRole, StreamSpec, YtDlpJob};

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use prism_video::ffmpeg::{
-    AudioConversion, FfmpegInputs, Metadata, PostInput, PostProcess, build_ffmpeg_args,
+    AudioConversion, Cut, FfmpegInputs, Metadata, PostInput, PostProcess, build_ffmpeg_args,
 };
 use prism_video::tools::which;
 use prism_video::{
@@ -46,6 +46,7 @@ fn base_job(output: &Path) -> PostProcess {
         sponsorblock: None,
         duration: Some(5.0),
         delete_inputs: false,
+        cut: None,
     }
 }
 
@@ -70,6 +71,7 @@ fn args_video_mp4() {
         subtitles: vec![("s.vtt".into(), Some("en".into()), Some("English".into()))],
         thumbnail: Some("t.jpg".into()),
         ffmetadata: Some("m.txt".into()),
+        ..Default::default()
     };
     let a = build_ffmpeg_args(&job, &inputs, Path::new("out/v.prismtmp.mp4")).join(" ");
     assert_eq!(
@@ -103,6 +105,59 @@ fn args_video_mkv_and_muxed() {
     );
     assert!(a.contains("-map_chapters -1 -f matroska v.tmp.mkv"), "{a}");
     assert!(!a.contains("-map_metadata"));
+}
+
+#[test]
+fn args_part_cut() {
+    let mut job = base_job(Path::new("p.mp4"));
+    job.metadata = None;
+    job.embed_chapters = false;
+    job.cut = Some(Cut {
+        start: 83.0,
+        length: 82.0,
+        main_offset: 1.25,
+        audio_offset: 0.5,
+    });
+    let inputs = FfmpegInputs {
+        main: "v.mp4".into(),
+        audio: Some("a.m4a".into()),
+        thumbnail: Some("t.jpg".into()),
+        video_encoder: vec!["-c:v:0".into(), "libx264".into()],
+        ..Default::default()
+    };
+    let a = build_ffmpeg_args(&job, &inputs, Path::new("p.tmp.mp4")).join(" ");
+    // Each stream is read from its own offset for the part's length; the video (not the cover)
+    // is encoded again, the audio copied.
+    assert!(
+        a.contains(
+            "-ss 1.250 -t 82.000 -i v.mp4 -ss 0.500 -t 82.000 -i a.m4a -i t.jpg \
+             -map 0:v:0 -map 1:a:0 -map 2:0 -c copy -c:v:0 libx264 -disposition:v:1 attached_pic"
+        ),
+        "{a}"
+    );
+    // The same streams without a cut: no seeking, nothing encoded.
+    job.cut = None;
+    let a = build_ffmpeg_args(&job, &inputs, Path::new("p.tmp.mp4")).join(" ");
+    assert!(!a.contains("-ss") && !a.contains("libx264"), "{a}");
+
+    // An audio part: the audio source is the main input.
+    job.cut = Some(Cut {
+        start: 10.0,
+        length: 5.5,
+        main_offset: 0.75,
+        audio_offset: 0.0,
+    });
+    job.audio_conversion = Some(AudioConversion {
+        format: AudioFormat::Mp3,
+        bitrate_kbps: Some(192),
+        source_codec: Some("opus".into()),
+    });
+    let inputs = FfmpegInputs {
+        main: "a.webm".into(),
+        ..Default::default()
+    };
+    let a = build_ffmpeg_args(&job, &inputs, Path::new("a.tmp.mp3")).join(" ");
+    assert!(a.contains("-ss 0.750 -t 5.500 -i a.webm -map 0:a:0"), "{a}");
 }
 
 #[test]
@@ -470,4 +525,66 @@ async fn local_postprocess_cancel_and_delete_inputs() {
         .await
         .unwrap();
     assert!(!copy.exists());
+}
+
+#[tokio::test]
+async fn local_part_is_cut_on_the_exact_frame() {
+    if !have_ffmpeg() {
+        eprintln!("ffmpeg not on PATH, skipping");
+        return;
+    }
+    let m = make_media();
+    let svc = service();
+    let out = m.dir.path().join("part/p.mp4");
+    let mut job = base_job(&out);
+    job.embed_subtitles = false;
+    job.embed_thumbnail = false;
+    job.embed_chapters = false;
+    job.chapters.clear();
+    job.inputs = vec![
+        inp(StreamRole::Video, &m.video, None, Some("avc1.64001e")),
+        inp(StreamRole::Audio, &m.audio, None, Some("mp4a.40.2")),
+    ];
+    // The test video has one keyframe, at 0 s; the part starts 1.3 s in and lasts 2 s.
+    job.cut = Some(Cut {
+        start: 1.3,
+        length: 2.0,
+        main_offset: 1.3,
+        audio_offset: 1.3,
+    });
+    job.duration = Some(2.0);
+    svc.postprocess(&job, None, CancellationToken::new())
+        .await
+        .unwrap();
+    let p = probe(&out);
+    let d: f64 = p["format"]["duration"].as_str().unwrap().parse().unwrap();
+    assert!((d - 2.0).abs() < 0.08, "duration {d}");
+    // 2 s at 25 fps, starting on the exact frame (a copy would start at the keyframe, 0 s).
+    let frames = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(&out)
+        .output()
+        .unwrap();
+    let n: u32 = String::from_utf8_lossy(&frames.stdout)
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(n, 50);
+    let codecs: Vec<&str> = p["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["codec_name"].as_str())
+        .collect();
+    assert_eq!(codecs, ["h264", "aac"]);
 }

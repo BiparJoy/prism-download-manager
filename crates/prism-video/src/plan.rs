@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ffmpeg::{AudioConversion, Metadata, PostInput, PostProcess, SponsorBlockRequest};
+use crate::ffmpeg::{AudioConversion, Cut, Metadata, PostInput, PostProcess, SponsorBlockRequest};
 use crate::model::{
     AudioFormat, Choice, ChoiceKind, Container, Format, OutputOptions, RequestContext,
     SponsorBlockMode, SubtitleTrack, VideoInfo,
@@ -118,11 +118,8 @@ pub fn accelerated_blocker(
     if info.has_drm {
         return Some("DRM protected".into());
     }
-    // Downloading the whole file to keep a minute of it would waste the rest: yt-dlp has
-    // ffmpeg fetch only that part.
-    if part(info, opts).is_some() {
-        return Some("part of the video".into());
-    }
+    // A part: the core reads the index at the start of each stream and downloads only the
+    // pieces around the part (see `crate::index`); a stream without one goes back to yt-dlp.
     if opts.sponsorblock.mode == SponsorBlockMode::Remove {
         return Some("SponsorBlock removal requires yt-dlp".into());
     }
@@ -381,6 +378,10 @@ fn plan_accelerated(
     let mut streams = Vec::new();
     let mut inputs = Vec::new();
     let audio_only = choice.kind == ChoiceKind::Audio;
+    let section = part(info, opts);
+    // Subtitles, chapters and SponsorBlock segments are timed to the whole video: a part gets
+    // none (the same as on the yt-dlp path).
+    let whole = section.is_none();
 
     let push_format = |f: &Format,
                        role: StreamRole,
@@ -453,7 +454,7 @@ fn plan_accelerated(
     }
 
     // Subtitles (video outputs only).
-    if !audio_only && (opts.embed_subtitles || opts.write_subtitles) {
+    if whole && !audio_only && (opts.embed_subtitles || opts.write_subtitles) {
         for t in select_subtitles(&info.subtitles, &opts.sub_langs, opts.auto_subtitles) {
             let pick = ["vtt", "srt", "ass"].iter().find_map(|e| {
                 t.formats.iter().find(|f| {
@@ -539,7 +540,8 @@ fn plan_accelerated(
         }
     });
 
-    let sponsorblock = (opts.sponsorblock.mode == SponsorBlockMode::Mark
+    let sponsorblock = (whole
+        && opts.sponsorblock.mode == SponsorBlockMode::Mark
         && info.extractor.to_ascii_lowercase().starts_with("youtube")
         && !opts.sponsorblock.categories.is_empty())
     .then(|| SponsorBlockRequest {
@@ -557,19 +559,25 @@ fn plan_accelerated(
         },
         audio_conversion,
         metadata: opts.embed_metadata.then(|| metadata_for(info)),
-        chapters: if opts.embed_chapters {
+        chapters: if whole && opts.embed_chapters {
             info.chapters.clone()
         } else {
             Vec::new()
         },
-        embed_subtitles: opts.embed_subtitles && !audio_only,
+        embed_subtitles: whole && opts.embed_subtitles && !audio_only,
         embed_thumbnail: opts.embed_thumbnail,
-        embed_chapters: opts.embed_chapters,
-        write_subtitles: opts.write_subtitles && !audio_only,
+        embed_chapters: whole && opts.embed_chapters,
+        write_subtitles: whole && opts.write_subtitles && !audio_only,
         write_thumbnail: opts.write_thumbnail,
         sponsorblock,
-        duration: info.duration,
+        duration: section.map(|s| s.length()).or(info.duration),
         delete_inputs,
+        cut: section.map(|s| Cut {
+            start: s.start,
+            length: s.length(),
+            main_offset: 0.0,
+            audio_offset: 0.0,
+        }),
     };
     AcceleratedPlan { streams, post }
 }

@@ -76,6 +76,7 @@ pub(crate) fn build_ctx(
         probed: Default::default(),
         expect_file: req.expect_file,
         source_generation: Arc::new(AtomicU64::new(0)),
+        window: req.window.filter(|(a, b)| b > a),
     }))
 }
 
