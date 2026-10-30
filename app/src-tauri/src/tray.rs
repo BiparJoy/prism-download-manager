@@ -24,6 +24,18 @@ pub struct TrayState {
     pub limiter: CheckMenuItem<Wry>,
     /// Menu items with the English text they show (relabelled when the UI language changes).
     items: Vec<(MenuItem<Wry>, &'static str)>,
+    /// The tray menu; active downloads are listed in it right under "Open Prism".
+    menu: Menu<Wry>,
+    /// The downloads listed now (rebuilt only when they change).
+    listed: std::sync::Mutex<Listed>,
+}
+
+/// Rows the tray menu shows for active downloads, kept so they can be removed by handle.
+#[derive(Default)]
+struct Listed {
+    ids: Vec<String>,
+    entries: Vec<MenuItem<Wry>>,
+    separator: Option<PredefinedMenuItem<Wry>>,
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon> {
@@ -76,6 +88,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon> {
             (drop.clone(), "Drop zone"),
             (quit.clone(), "Quit Prism"),
         ],
+        menu: menu.clone(),
+        listed: Default::default(),
     });
 
     TrayIconBuilder::with_id(TRAY_ID)
@@ -106,7 +120,11 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon> {
                 "quit" => {
                     tauri::async_runtime::spawn(async move { crate::quit(&app).await });
                 }
-                _ => {}
+                id => {
+                    if let Some(id) = id.strip_prefix("open:") {
+                        let _ = crate::windows::open_progress(&app, id);
+                    }
+                }
             }
         })
         .on_tray_icon_event(|tray, event| {
@@ -171,6 +189,60 @@ pub fn update(app: &AppHandle, active: usize, speed: u64, icon_changed: bool) {
     }
 }
 
+/// Lists the active downloads (`ids`) right under "Open Prism", then a separator; nothing
+/// when idle. Clicking one opens its progress window.
+pub fn list_downloads(app: &AppHandle, ids: &[&str]) {
+    let Some(state) = app.try_state::<TrayState>() else {
+        return;
+    };
+    // By name, so the list is stable (progress arrives in hash order) and easy to scan.
+    let core = app.state::<Core>();
+    let mut wanted: Vec<(String, String)> = ids
+        .iter()
+        .filter_map(|id| core.item(id).map(|i| (i.file_name, id.to_string())))
+        .collect();
+    wanted.sort();
+    let mut listed = state.listed.lock().unwrap_or_else(|e| e.into_inner());
+    if listed.ids.iter().eq(wanted.iter().map(|(_, id)| id)) {
+        return;
+    }
+    let menu = &state.menu;
+    for entry in listed.entries.drain(..) {
+        let _ = menu.remove(&entry);
+    }
+    if let Some(sep) = listed.separator.take() {
+        let _ = menu.remove(&sep);
+    }
+    for (name, id) in &wanted {
+        let label = format!("↓  {}", short(name));
+        if let Ok(entry) = MenuItem::with_id(app, format!("open:{id}"), label, true, None::<&str>)
+            && menu.insert(&entry, 1 + listed.entries.len()).is_ok()
+        {
+            listed.entries.push(entry);
+        }
+    }
+    if !listed.entries.is_empty()
+        && let Ok(sep) = PredefinedMenuItem::separator(app)
+        && menu.insert(&sep, 1 + listed.entries.len()).is_ok()
+    {
+        listed.separator = Some(sep);
+    }
+    listed.ids = wanted.into_iter().map(|(_, id)| id).collect();
+}
+
+/// Keeps menu entries readable: long names are cut in the middle.
+fn short(name: &str) -> String {
+    const MAX: usize = 48;
+    let chars: Vec<char> = name.chars().collect();
+    if chars.len() <= MAX {
+        return name.to_string();
+    }
+    let half = MAX / 2 - 1;
+    let head: String = chars[..half].iter().collect();
+    let tail: String = chars[chars.len() - half..].iter().collect();
+    format!("{head}…{tail}")
+}
+
 fn human_speed(bps: u64) -> String {
     const UNITS: [&str; 4] = ["B/s", "KB/s", "MB/s", "GB/s"];
     let mut v = bps as f64;
@@ -183,5 +255,22 @@ fn human_speed(bps: u64) -> String {
         format!("{v:.0} {}", UNITS[i])
     } else {
         format!("{v:.1} {}", UNITS[i])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::short;
+
+    #[test]
+    fn long_names_are_cut_in_the_middle() {
+        assert_eq!(short("setup.exe"), "setup.exe");
+        let long = "Windows11_Client_x64_en-us_26300_9457_with_a_very_long_tail.iso";
+        let cut = short(long);
+        assert_eq!(cut.chars().count(), 47);
+        assert!(cut.starts_with("Windows11_Client") && cut.ends_with("long_tail.iso"));
+        assert!(cut.contains('…'));
+        // Multi-byte names are cut on character boundaries.
+        assert_eq!(short(&"ž".repeat(60)).chars().count(), 47);
     }
 }

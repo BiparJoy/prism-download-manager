@@ -631,6 +631,7 @@ fn side_effects(
             let is_active = active > 0;
             if *was_active != Some(is_active) || last_tooltip.elapsed().as_secs() >= 1 {
                 tray::update(app, active, speed, *was_active != Some(is_active));
+                tray::list_downloads(app, &list.iter().map(|p| p.id.as_str()).collect::<Vec<_>>());
                 *was_active = Some(is_active);
                 *last_tooltip = std::time::Instant::now();
             }
@@ -645,6 +646,7 @@ fn side_effects(
         let active = core.active_count();
         if active == 0 && *was_active == Some(true) {
             tray::update(app, 0, 0, true);
+            tray::list_downloads(app, &[]);
             *was_active = Some(false);
         }
     }
