@@ -42,6 +42,14 @@ export function formatClock(secs?: number | null): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
+/** A calendar day given as "YYYY-MM-DD" (no time), in the UI language: "1 November". */
+export function formatDay(iso: string): string {
+  const d = new Date(`${iso}T00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  const year = d.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
+  return d.toLocaleDateString(getLocale(), { day: "numeric", month: "long", year });
+}
+
 export function formatDate(ms?: number | null): string {
   if (!ms) return "—";
   const d = new Date(ms);

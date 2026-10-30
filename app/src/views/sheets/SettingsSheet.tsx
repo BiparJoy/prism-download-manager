@@ -1,12 +1,12 @@
 import { checkForUpdates } from "../UpdateBanner";
 import { BrowserConnect, useExtensionStatus } from "../BrowserConnect";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ListField, NumberField, RateField, Row, Segmented, Select, Slider, Switch, TextField } from "../../components/Controls";
 import { BrandTile } from "../../components/LogoMark";
 import { Icon, type IconName } from "../../design/icons";
 import { type DeepPartial, patchSettings } from "../../lib/actions";
 import { api, type HfContext, type IntegrationStatus, type ToolStatus } from "../../lib/api";
-import { formatBytes, formatDate, formatSpeed } from "../../lib/format";
+import { formatBytes, formatDate, formatDay, formatSpeed } from "../../lib/format";
 import { LANGUAGES, t, tk } from "../../lib/i18n";
 import { needsRepair } from "../../lib/integration";
 import { openUrl, REPO_URL } from "../../lib/links";
@@ -523,18 +523,30 @@ export const NETWORK_COLORS = ["#7c6cff", "#3dd68c", "#f5b544", "#4cc9f0", "#ff6
 /** Polls `load` every `ms` while mounted. */
 export function usePolled<T>(load: () => Promise<T>, ms: number): [T | null, (v: T) => void] {
   const [value, setValue] = useState<T | null>(null);
+  // Bumped by a manual set: a poll that started before it would bring back the old value.
+  const version = useRef(0);
   useEffect(() => {
     let live = true;
-    const tick = () => void load().then((v) => live && setValue(v)).catch(() => {});
+    const tick = () => {
+      const at = version.current;
+      void load()
+        .then((v) => live && at === version.current && setValue(v))
+        .catch(() => {});
+    };
     tick();
     const id = setInterval(tick, ms);
     return () => {
       live = false;
       clearInterval(id);
     };
+    // `load` is a module-level api function: the same on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ms]);
-  return [value, setValue];
+  const set = useCallback((v: T) => {
+    version.current++;
+    setValue(v);
+  }, []);
+  return [value, set];
 }
 
 function Networks({ s }: { s: Settings }) {
@@ -639,7 +651,7 @@ function DataAllowance({ s }: { s: Settings }) {
           {usage && (
             <Row
               title={t("{used} of {limit} used", { used: formatBytes(usage.used), limit: formatBytes(a.limit) })}
-              hint={usage.exhausted ? t("Downloads are paused until {date}", { date: usage.resetsOn }) : t("Resets on {date}", { date: usage.resetsOn })}
+              hint={usage.exhausted ? t("Downloads are paused until {date}", { date: formatDay(usage.resetsOn) }) : t("Resets on {date}", { date: formatDay(usage.resetsOn) })}
             >
               <span className="inline" style={{ minWidth: 220 }}>
                 <span style={{ flex: 1 }}>

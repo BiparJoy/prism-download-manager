@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { gridTemplate, resolveColumns, toggleColumn } from "./columns";
+import { formatDay } from "./format";
 import { bytesToBase64, categoryForFiles, extractUrls, fileVisual, isTorrentLink, looksLikeUrl, matchesFilter, middleTruncate, progressOf, statusView } from "./present";
 import { Ring, smoothPath } from "./ring";
 import { hexDecode, hexEncode, parseRoute } from "./route";
@@ -171,5 +172,14 @@ describe("categoryForFiles (torrent window)", () => {
   it("falls back to Other", () => {
     expect(categoryForFiles([{ path: "readme", size: 5 }], cats)).toBe("other");
     expect(categoryForFiles([], cats)).toBe("other");
+  });
+});
+
+describe("formatDay", () => {
+  it("shows a calendar day without a time, and passes through what it can't read", () => {
+    const day = formatDay("2026-11-01");
+    expect(day).toMatch(/1/);
+    expect(day).not.toMatch(/:/);
+    expect(formatDay("not-a-date")).toBe("not-a-date");
   });
 });

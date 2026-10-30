@@ -345,7 +345,9 @@ impl NetworkSet {
         let mut g = self.networks.write().expect("networks lock");
         let mut next = Vec::with_capacity(specs.len());
         for spec in specs {
+            // A NUL can't be passed to the OS as an adapter name (the HTTP stack panics on it).
             if spec.interface.is_empty()
+                || spec.interface.contains('\0')
                 || next
                     .iter()
                     .any(|n: &Arc<Network>| n.interface == spec.interface)
@@ -655,6 +657,13 @@ mod tests {
             a.on_connect_failure(S);
         }
         assert!(set.lease(S).is_some());
+    }
+
+    #[test]
+    fn unusable_adapter_names_are_ignored() {
+        let set = NetworkSet::default();
+        set.configure(&[spec(""), spec("bad\0name"), spec("a"), spec("a")]);
+        assert_eq!(set.stats().len(), 1);
     }
 
     #[test]
