@@ -1,16 +1,19 @@
 //! Multi-network downloads: spread a download's connections over several network adapters
 //! (Wi-Fi, Ethernet, a tethered phone, …) so their bandwidth adds up.
 //!
-//! Every connection of a segmented HTTP download is pinned to one [`Network`]. Work stealing in
-//! the segment table does the balancing: connections on a fast network finish their ranges
-//! sooner and take more work, and slow tails are raced by idle connections on other networks.
+//! Every connection of a segmented HTTP download, and every segment worker of an HLS/DASH
+//! download, is pinned to one [`Network`]. Work stealing in the segment table does the
+//! balancing: connections on a fast network finish their ranges sooner and take more work,
+//! and slow tails are raced by idle connections on other networks. FTP downloads are not
+//! pinned (the FTP library opens its data connections itself) and use the default route.
 //!
 //! Pinning a socket to an adapter:
 //! * Linux and macOS bind the socket to the interface itself (`SO_BINDTODEVICE` /
 //!   `IP_BOUND_IF`) and drop DNS answers of a family the adapter has no address for. On Linux, binding only to the adapter's IP would still send packets out the
 //!   default route, where the network that does not own that IP drops them.
-//! * Windows routes by source address, so the socket is bound to the adapter's IPv4 address
-//!   (or IPv6 when it has no IPv4) and DNS answers are filtered to that address family.
+//! * Windows: the socket is bound to the adapter's IPv4 address (or IPv6 when it has no IPv4)
+//!   and DNS answers are filtered to that address family. Windows still picks the outgoing
+//!   adapter by route metric, so two adapters on the same subnet may not be kept apart.
 //!
 //! An empty [`NetworkSet`] (the default) means "use the operating system's default route",
 //! exactly as before.

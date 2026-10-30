@@ -7,8 +7,8 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::*;
-use prism_engine::{DownloadEvent, NetworkSpec, list_interfaces};
-use prism_testserver::{LimitMode, ServerConfig, expected_sha256};
+use prism_engine::{DownloadEvent, MediaRequest, NetworkSpec, Url, list_interfaces};
+use prism_testserver::{HlsFixture, LimitMode, ServerConfig, expected_sha256};
 
 fn net(interface: &str, enabled: bool, speed_limit: u64) -> NetworkSpec {
     NetworkSpec {
@@ -99,6 +99,35 @@ async fn disabled_networks_fall_back_to_the_default_route() {
     let done = wait(&h, 60).await.unwrap();
     assert_eq!(sha256_file(&done.path), expected_sha256(33, size));
     assert_eq!(e.networks().get("lo").unwrap().received(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn media_segments_run_over_the_configured_network() {
+    let fixture = HlsFixture::synthetic(1, 12, 64 * 1024, 1);
+    let srv = server(ServerConfig {
+        hls: Some(fixture.clone()),
+        ..Default::default()
+    })
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let e = engine();
+    e.networks()
+        .configure(&[net("lo", true, 0), net("prism-missing0", true, 0)]);
+    let mut req = MediaRequest::new(
+        Url::parse(&srv.url("/hls/master.m3u8")).unwrap(),
+        dir.path(),
+    );
+    req.remux = false;
+    req.connections = 4;
+    let h = e.start_media(req, None, vec![]);
+    let done = wait(&h, 60).await.unwrap();
+    assert_eq!(
+        sha256_file(&done.path),
+        sha256(&fixture.expected_variant_bytes(0))
+    );
+    let lo = e.networks().get("lo").unwrap();
+    assert!(lo.received() >= 12 * 64 * 1024, "segments counted on lo");
+    assert_eq!(lo.connections(), 0, "leases are released when workers end");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
