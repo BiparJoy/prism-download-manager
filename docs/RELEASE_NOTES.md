@@ -1,36 +1,34 @@
-# Prism 1.1.7 — One beam. Many rays.
+# Prism 1.1.8 — One beam. Many rays.
 
 A fast, open-source download manager for Windows, Linux and macOS, with browser integration
 and video downloads.
 
-## What's new in 1.1.7
+## What's new in 1.1.8
 
-* **AI models from Hugging Face** ([#29](https://github.com/FortoGraphy/prism-download-manager/issues/29)).
-  Download a model by its name (like `Qwen/Qwen3-8B`), a link or a search: the new model button in
-  the toolbar, or Settings › AI models. Prism lists the model's files and picks the ones you need:
-  one version of a GGUF model (Q4_K_M unless you choose another), or the weights in one format with
-  the configs and tokenizer beside them. The files go into a *Hugging Face* queue and download one
-  after another, each over many connections, and every weights file is checked against the SHA-256
-  Hugging Face lists. Files you already have are skipped.
-  * Gated and private models work with an access token (Prism also uses the one `hf auth login`
-    saved). The token goes only to the Hugging Face server, never to the download servers it
-    redirects to, and it isn't stored with the downloads.
-  * The server can be a mirror such as hf-mirror.com (or `HF_ENDPOINT`).
-  * A link to a model's page opens the model window; a link to a file's page downloads the file.
-  * Thanks to Vasili-Sk for the idea!
-* **Turkish** ([#31](https://github.com/FortoGraphy/prism-download-manager/issues/31)): 9 languages
-  now. Thanks to merihfiliz for asking!
-* **Windows on Linux** ([#30](https://github.com/FortoGraphy/prism-download-manager/issues/30)): on KDE
-  Plasma, a Prism window sometimes stayed empty. Windows are now shown as soon as they are created,
-  as on macOS, instead of after their first paint.
-* **The window's background matches the theme**
-  ([#21](https://github.com/FortoGraphy/prism-download-manager/issues/21)). On Linux (and Windows 10),
-  where there's no glass behind the window, the window turned see-through and showed the desktop
-  behind the light or dark theme; it now keeps its own background. On Windows 11 the glass now also
-  switches when Windows changes between light and dark while Prism is open.
-* Linux and macOS: if Prism was ended while downloading (a crash, or killed), the computer could
-  stay unable to sleep until a restart. Keeping it awake now ends together with Prism.
+* **Lists of links open once**
+  ([#37](https://github.com/FortoGraphy/prism-download-manager/issues/37)). Pasting a list of links
+  (Batch download › Paste a list) could open the *Download links* window twice: one worked, the
+  other froze and couldn't be closed without quitting Prism. Dropped links and copied links could do
+  the same. Each list now opens exactly one window.
+* **Linux: empty windows and memory**
+  ([#36](https://github.com/FortoGraphy/prism-download-manager/issues/36),
+  [#40](https://github.com/FortoGraphy/prism-download-manager/issues/40)).
+  * On KDE Plasma (Wayland), a Prism window brought back from the taskbar could stay empty. Prism
+    now uses WebKit's previous renderer, the known cure for empty WebKit windows there. To go back
+    to the newer one, start Prism with `WEBKIT_DISABLE_DMABUF_RENDERER=0`.
+  * After long downloads Prism gives the memory it no longer needs back to the system.
+* **Hide the Dock icon on the Mac**
+  ([#34](https://github.com/FortoGraphy/prism-download-manager/issues/34)): Settings › General ›
+  *Hide the Dock icon*. While Prism waits in the menu bar it has no Dock icon; when its window is
+  open, the icon is there so Cmd+Tab works. Thanks to mehdiillala for asking!
 * The Chrome Web Store extension (1.1.0) keeps working as it is; nothing to update there.
+
+### Prism 1.1.7
+
+* AI models from Hugging Face ([#29](https://github.com/FortoGraphy/prism-download-manager/issues/29)),
+  Turkish ([#31](https://github.com/FortoGraphy/prism-download-manager/issues/31)), Linux windows
+  shown on creation ([#30](https://github.com/FortoGraphy/prism-download-manager/issues/30)), and a
+  window background that matches the theme.
 
 ### Prism 1.1.6
 

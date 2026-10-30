@@ -21,9 +21,8 @@ export async function handleDrop(dt: DataTransfer) {
   const text = dt.getData("text/uri-list") || dt.getData("text/plain");
   const urls = extractUrls(text);
   if (urls.length === 1) await actions.addUrl(urls[0]);
-  else if (urls.length > 1) {
-    const batch = await attempt(api.batchFromText(urls.join("\n")), t("Could not add the links"));
-    if (batch) await attempt(api.openWindow("batch", batch.id));
-  } else if (!files.length && text.trim()) toast(t("Nothing to download"), { kind: "error", body: t("The dropped text contains no http(s), ftp or magnet address.") });
+  // The core opens the Download Links window for the batch itself (#37).
+  else if (urls.length > 1) await attempt(api.batchFromText(urls.join("\n")), t("Could not add the links"));
+  else if (!files.length && text.trim()) toast(t("Nothing to download"), { kind: "error", body: t("The dropped text contains no http(s), ftp or magnet address.") });
 }
 

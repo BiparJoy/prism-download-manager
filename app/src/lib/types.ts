@@ -182,6 +182,8 @@ export interface Settings {
     language: string;
     /** Finished downloads whose file was deleted from the computer leave the list. */
     removeDeletedFiles: boolean;
+    /** macOS: no Dock icon while Prism waits in the menu bar. */
+    hideDockIcon: boolean;
   };
   appearance: {
     theme: Theme;

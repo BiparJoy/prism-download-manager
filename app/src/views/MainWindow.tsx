@@ -7,7 +7,7 @@ import { actions } from "../lib/actions";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useApp } from "../lib/store";
-import { toast, useUi } from "../lib/ui";
+import { attempt, toast, useUi } from "../lib/ui";
 import { BottomPane } from "./BottomPane";
 import { useWhatsNew } from "./sheets/WhatsNewSheet";
 import { ConnectBanner } from "./BrowserConnect";
@@ -162,7 +162,8 @@ function useCoreNotifications() {
         else if (e.type === "clipboardUrls" && e.payload.length)
           toast(e.payload.length > 1 ? t("{count} links copied", { count: e.payload.length }) : t("Link copied"), {
             body: e.payload[0],
-            action: { label: t("Download"), run: () => (e.payload.length > 1 ? void api.batchFromText(e.payload.join("\n")).then((b) => api.openWindow("batch", b.id)) : void actions.addUrl(e.payload[0])) },
+            // The core opens the Download Links window for the batch itself (#37).
+            action: { label: t("Download"), run: () => (e.payload.length > 1 ? void attempt(api.batchFromText(e.payload.join("\n")), t("Could not add the links")) : void actions.addUrl(e.payload[0])) },
           });
       }).then((u) => (off = u)),
     );

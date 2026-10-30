@@ -3,6 +3,7 @@
 //! Every window loads the same SPA; the hash route (`#/capture/<id>`) selects the view.
 
 use prism_core::manager::Core;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{
@@ -68,19 +69,45 @@ fn spec(kind: &str) -> Spec {
 /// Windows (WebView2) keeps them hidden until the first paint, so no white frame shows.
 pub const SHOW_ON_CREATE: bool = cfg!(any(target_os = "macos", target_os = "linux"));
 
+/// Labels of windows that are being built right now. Tauri checks a label before it creates the
+/// window but registers it only afterwards, so two requests at the same moment both built one
+/// (#37: the core's `BatchRequested` and the page's `open_window`); the second one replaced the
+/// first in Tauri's list, and the first stayed on screen frozen and impossible to close.
+static OPENING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Takes a label off `OPENING` when the build is over, whether it worked or not.
+struct Opening(String);
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        let mut opening = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+        opening.retain(|l| l != &self.0);
+    }
+}
+
 /// Open (or focus) a window for `kind` with an optional entity id.
-pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<WebviewWindow> {
+pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<()> {
     let label = match id {
         Some(id) => format!("{kind}-{id}"),
         None => kind.to_string(),
     };
-    if let Some(w) = app.get_webview_window(&label) {
-        bring_app_forward(app, kind);
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-        return Ok(w);
-    }
+    let _opening = {
+        let mut opening = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(w) = app.get_webview_window(&label) {
+            drop(opening);
+            bring_app_forward(app, kind);
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+            return Ok(());
+        }
+        if opening.contains(&label) {
+            // Another request is building this very window; it shows and focuses it.
+            return Ok(());
+        }
+        opening.push(label.clone());
+        Opening(label.clone())
+    };
     // A `#` inside WebviewUrl::App is percent-encoded into the path, so the page is loaded
     // plainly and the hash route is set before any app script runs.
     let route = match id {
@@ -136,7 +163,7 @@ pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<Webv
         }
     });
     tracing::info!("opened window {label}");
-    Ok(window)
+    Ok(())
 }
 
 /// On macOS a background app's new window opens behind the browser; activate the app so
@@ -166,13 +193,13 @@ fn place_bottom_right(window: &WebviewWindow, higher: bool) {
 }
 
 pub fn open_details(app: &AppHandle, id: &str) -> tauri::Result<()> {
-    open(app, "details", Some(id)).map(|_| ())
+    open(app, "details", Some(id))
 }
 
 /// The auto-opened progress popup — a distinct window kind from `open_details` so it never
 /// collides with (or gets reused by) a manually-opened full details window for the same item.
 pub fn open_progress(app: &AppHandle, id: &str) -> tauri::Result<()> {
-    open(app, "progress", Some(id)).map(|_| ())
+    open(app, "progress", Some(id))
 }
 
 /// Closes the auto-opened progress popup for `id`, if one is open (used when the download
@@ -218,6 +245,7 @@ static TRAY_TRIP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::n
 
 pub fn show_main(app: &AppHandle) {
     MAIN_WANTED.store(true, Ordering::SeqCst);
+    update_dock(app, true);
     #[cfg(not(target_os = "macos"))]
     TRAY_TRIP.fetch_add(1, Ordering::SeqCst);
     if CREATING_MAIN.load(Ordering::SeqCst) {
@@ -286,6 +314,42 @@ fn create_main(app: &AppHandle) {
             Err(e) => tracing::error!("could not open the main window: {e}"),
         }
     });
+}
+
+/// macOS (#34): the Dock icon as last set — 0 shown (the default), 1 hidden.
+#[cfg(target_os = "macos")]
+static DOCK_HIDDEN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// macOS (#34): with "Hide the Dock icon" on, Prism has no Dock icon while it waits in the menu
+/// bar; while the main window is open the icon is there, so Cmd+Tab and the menu bar work.
+pub fn update_dock(app: &AppHandle, main_open: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let hide = !main_open && app.state::<Core>().settings().general.hide_dock_icon;
+        if hide {
+            DOCK_HIDDEN.store(1, Ordering::SeqCst);
+            let _ = app.set_dock_visibility(false);
+            // macOS ignores hiding within a second of showing (it would leave a stray icon), so
+            // a window closed right after it opened is checked again.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(1200));
+                if DOCK_HIDDEN.load(Ordering::SeqCst) == 1 && !main_is_open(&app) {
+                    let _ = app.set_dock_visibility(false);
+                }
+            });
+        } else if DOCK_HIDDEN.swap(0, Ordering::SeqCst) == 1 {
+            let _ = app.set_dock_visibility(true);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, main_open);
+}
+
+/// Whether the main window is on screen.
+pub fn main_is_open(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .is_some_and(|w| w.is_visible().unwrap_or(false))
 }
 
 /// The main window went to the tray, or Prism started there: after a while the hidden window is

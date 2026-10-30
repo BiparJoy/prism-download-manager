@@ -65,6 +65,9 @@ pub struct General {
     /// UI language code ("en", "cs", "de", "es", "fr", "it", "id", "tr", "ar"); empty = the
     /// system's language.
     pub language: String,
+    /// macOS (#34): no Dock icon while Prism waits in the menu bar (it's back while the main
+    /// window is open).
+    pub hide_dock_icon: bool,
 }
 
 impl Default for General {
@@ -82,6 +85,7 @@ impl Default for General {
             check_updates: true,
             remove_deleted_files: false,
             language: String::new(),
+            hide_dock_icon: false,
         }
     }
 }

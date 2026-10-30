@@ -19,6 +19,26 @@ type Change = { icon: IconName; title: string; body: string; credit?: string; ac
  */
 const CHANGES: Change[] = [
   {
+    icon: "batch",
+    title: tk("Lists of links"),
+    body: tk("A pasted list of links opens one Download links window again, not a second one that froze and couldn't be closed."),
+  },
+  {
+    icon: "monitor",
+    title: tk("Prism on Linux"),
+    body: tk("On KDE Plasma, a window brought back from the taskbar no longer stays empty, and Prism gives memory back after long downloads."),
+  },
+  {
+    icon: "eye",
+    title: tk("Dock icon on the Mac"),
+    body: tk("Prism can hide its Dock icon while it waits in the menu bar: Settings › General."),
+    credit: "mehdiillala",
+  },
+];
+
+/** The previous version's changes, shown below the new ones. */
+const PREVIOUS = { version: "1.1.7", changes: [
+  {
     icon: "model",
     title: tk("AI models from Hugging Face"),
     body: tk("Download a model by its name, a link or a search. Prism picks the files you need (one GGUF version, the weights in one format) and downloads them over many connections, checked against Hugging Face."),
@@ -41,26 +61,6 @@ const CHANGES: Change[] = [
     title: tk("Background that matches the theme"),
     body: tk("On Linux the window no longer shows the desktop through it, and on Windows the glass switches too when Windows changes between light and dark."),
   },
-];
-
-/** The previous version's changes, shown below the new ones. */
-const PREVIOUS = { version: "1.1.6", changes: [
-  {
-    icon: "sun",
-    title: tk("Light theme"),
-    body: tk("When the theme matches Windows, the glass behind the window is now light in the light theme too."),
-  },
-  {
-    icon: "browser",
-    title: tk("Brave Origin"),
-    body: tk("The browser extension now connects in Brave Origin too."),
-  },
-  {
-    icon: "video",
-    title: tk("VK and YouTube videos"),
-    body: tk("The Download video button works on vk.ru and vkvideo.ru, and videos from a browser signed in to YouTube no longer fail."),
-    credit: "BiparJoy",
-  },
 ] satisfies Change[] };
 
 /**
@@ -77,7 +77,7 @@ export function WhatsNewSheet() {
         <BrandTile size={52} />
         <div>
           <h2>{t("Prism {version} is here", { version })}</h2>
-          <p className="text-secondary">{t("AI models from Hugging Face, Turkish, and a fix for Linux.")}</p>
+          <p className="text-secondary">{t("Fixes for lists of links and for Linux, and a hidden Dock icon on the Mac.")}</p>
         </div>
       </header>
 

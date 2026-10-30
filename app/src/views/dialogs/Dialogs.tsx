@@ -302,10 +302,8 @@ function BatchDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
     setBusy(true);
     const b = await attempt(mode === "pattern" ? api.batchFromPattern(pattern) : api.batchFromText(text), t("Could not build the list"));
     setBusy(false);
-    if (b) {
-      onClose();
-      await attempt(api.openWindow("batch", b.id), t("Could not open the link list"));
-    }
+    // The core opens the Download Links window for the batch itself (#37).
+    if (b) onClose();
   };
   const preview = mode === "pattern" ? expandPreview(pattern) : null;
   return (

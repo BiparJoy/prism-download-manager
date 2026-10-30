@@ -630,9 +630,7 @@ pub async fn open_details(app: AppHandle, id: String) -> CmdResult<()> {
 
 #[tauri::command]
 pub async fn open_window(app: AppHandle, kind: String, id: Option<String>) -> CmdResult<()> {
-    windows::open(&app, &kind, id.as_deref())
-        .map(|_| ())
-        .map_err(err)
+    windows::open(&app, &kind, id.as_deref()).map_err(err)
 }
 
 #[tauri::command]
