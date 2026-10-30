@@ -119,6 +119,9 @@ impl Core {
 
     /// Creates or changes one network's entry (name, colour, on/off, speed limit).
     pub fn update_network(&self, entry: NetworkEntry) -> Result<Vec<NetworkView>> {
+        // Two changes at once (quick clicks) would otherwise both start from the old list,
+        // and the second save would undo the first.
+        let edit = self.0.network_edit.lock();
         let mut networks = self.settings().networks;
         match networks
             .entries
@@ -129,6 +132,7 @@ impl Core {
             None => networks.entries.push(entry),
         }
         self.update_settings(&serde_json::json!({ "networks": networks }))?;
+        drop(edit);
         Ok(self.networks())
     }
 

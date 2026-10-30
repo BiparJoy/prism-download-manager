@@ -1509,6 +1509,31 @@ async fn switching_the_allowance_on_over_the_limit_pauses_running_downloads() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn network_changes_made_at_once_are_all_kept() {
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    // Quick clicks on several switches: each save starts from the list as it is then.
+    std::thread::scope(|s| {
+        for n in 0..16 {
+            let core = core.clone();
+            s.spawn(move || {
+                core.update_network(prism_core::settings::NetworkEntry {
+                    interface: format!("edit{n}"),
+                    enabled: n % 2 == 0,
+                    ..Default::default()
+                })
+                .unwrap();
+            });
+        }
+    });
+    assert_eq!(
+        core.settings().networks.entries.len(),
+        16,
+        "no change was lost"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn network_settings_reach_the_engine() {
     let tmp = tempfile::tempdir().unwrap();
     let core = core_in(tmp.path()).await;

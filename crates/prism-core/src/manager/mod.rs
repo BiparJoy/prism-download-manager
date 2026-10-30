@@ -137,6 +137,8 @@ pub(crate) struct Inner {
     pub ext_install_type: Mutex<Option<String>>,
     /// Per-network speed meters for the Networks panel.
     pub(crate) net_meters: Mutex<networks::NetMeters>,
+    /// Held while one network entry is read, changed and saved (see `update_network`).
+    pub(crate) network_edit: Mutex<()>,
     /// Bytes downloaded in the current data-allowance period.
     pub data_usage: Mutex<crate::networks::DataUsage>,
     /// Downloads the used-up allowance holds (they wait as queued), resumed when the
@@ -252,6 +254,7 @@ impl Core {
             ext_version: Mutex::new(ext_version),
             ext_install_type: Mutex::new(ext_install_type),
             net_meters: Mutex::new(Default::default()),
+            network_edit: Mutex::new(()),
             data_usage: Mutex::new(data_usage),
             allowance_held: Mutex::new(allowance_held),
             allowance_held_dirty: Default::default(),
