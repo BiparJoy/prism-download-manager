@@ -163,7 +163,11 @@ impl Core {
         let ready = !needs_probe || self.ensure_ffmpeg().await.is_ok();
         let mut out = Vec::with_capacity(paths.len());
         for p in paths {
-            let info = if !ready && media::kind_by_name(&p) != MediaKind::Other {
+            let info = if media::kind_by_name(&p) == MediaKind::Other {
+                // Not a picture, music or a video (a ZIP takes any file): nothing to probe, so
+                // no ffmpeg is needed either.
+                MediaInfo::other(&p, file_size(&p))
+            } else if !ready {
                 let mut i = MediaInfo::other(&p, file_size(&p));
                 i.kind = media::kind_by_name(&p);
                 i.problem = Some(MediaProblem::Converter);

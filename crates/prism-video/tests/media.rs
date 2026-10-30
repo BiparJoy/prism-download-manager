@@ -239,6 +239,10 @@ async fn converts_video_audio_and_pictures() {
     ] {
         let pinfo = svc.media_inspect(src).await.unwrap();
         assert_eq!(pinfo.kind, MediaKind::Image);
+        if !pinfo.targets.contains(&target) {
+            // This ffmpeg can't make it (Homebrew's has no libwebp), so it isn't offered.
+            continue;
+        }
         let out = prism_video::media::output_path(src, target.ext(), None);
         let made = svc
             .media_convert(&pinfo, target, Quality::Standard, &out, &|_| {}, &cancel)

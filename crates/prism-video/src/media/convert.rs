@@ -354,7 +354,14 @@ pub(crate) async fn convert(
     cancel: &CancellationToken,
 ) -> Result<std::path::PathBuf> {
     let tmp = temp_output(out);
-    let args = convert_args(info, target, quality, &tmp)?;
+    let mut args = convert_args(info, target, quality, &tmp)?;
+    if target == Target::Ogg
+        && super::encoders(ffmpeg)
+            .await
+            .is_some_and(|list| !super::has_encoder(&list, "libvorbis"))
+    {
+        use_builtin_vorbis(&mut args);
+    }
     let duration = if target.is_image() {
         None
     } else {
@@ -371,10 +378,38 @@ pub(crate) async fn convert(
     }
 }
 
+/// An ffmpeg without libvorbis (Homebrew's, since 2026) still has its own Vorbis encoder: marked
+/// experimental and stereo only, but the result is the usual Ogg Vorbis.
+fn use_builtin_vorbis(args: &mut Vec<String>) {
+    if let Some(i) = args.iter().position(|a| a == "libvorbis") {
+        args[i] = s("vorbis");
+        args.splice(i + 1..i + 1, [s("-strict"), s("-2"), s("-ac"), s("2")]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn ogg_without_libvorbis_uses_ffmpegs_own_vorbis() {
+        let mut a = vec![
+            s("-c:a"),
+            s("libvorbis"),
+            s("-q:a"),
+            s("5"),
+            s("-f"),
+            s("ogg"),
+        ];
+        use_builtin_vorbis(&mut a);
+        assert_eq!(
+            a,
+            [
+                "-c:a", "vorbis", "-strict", "-2", "-ac", "2", "-q:a", "5", "-f", "ogg"
+            ]
+        );
+    }
 
     fn video(codec: &str, audio: Option<&str>) -> MediaInfo {
         MediaInfo {

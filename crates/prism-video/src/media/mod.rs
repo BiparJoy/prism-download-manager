@@ -29,6 +29,56 @@ use crate::tools::Tool;
 pub use convert::{Quality, Target};
 pub use shrink::{Grade, ShrinkOutcome, ShrinkPlan, Verdict};
 
+/// The encoders of an ffmpeg build (`ffmpeg -encoders`), asked once per ffmpeg. `None` when it
+/// can't be asked.
+pub(crate) async fn encoders(ffmpeg: &Path) -> Option<std::sync::Arc<str>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    static LISTS: Mutex<Option<HashMap<PathBuf, Arc<str>>>> = Mutex::new(None);
+    let cached = LISTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(HashMap::new)
+        .get(ffmpeg)
+        .cloned();
+    if cached.is_some() {
+        return cached;
+    }
+    let out = crate::process::command(ffmpeg)
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .await
+        .ok()
+        .filter(|o| o.status.success())?;
+    let list: Arc<str> = String::from_utf8_lossy(&out.stdout).into();
+    LISTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(HashMap::new)
+        .insert(ffmpeg.to_path_buf(), list.clone());
+    Some(list)
+}
+
+/// Whether `ffmpeg -encoders` output lists `name` (lines look like ` A....D libvorbis  ...`).
+pub(crate) fn has_encoder(list: &str, name: &str) -> bool {
+    list.lines()
+        .any(|l| l.split_whitespace().nth(1) == Some(name))
+}
+
+/// Whether an ffmpeg with these encoders can make `target`. A system ffmpeg can be built without
+/// some (Homebrew's has no libwebp or libvorbis); Prism's own builds have them all. OGG always
+/// works: ffmpeg's own Vorbis encoder stands in for libvorbis.
+pub fn can_make(target: Target, encoders: &str) -> bool {
+    let need: &[&str] = match target {
+        Target::Mp3 => &["libmp3lame"],
+        Target::Webp => &["libwebp"],
+        Target::Mp4 => &["libx264"],
+        Target::Webm => &["libvpx-vp9", "libopus"],
+        _ => &[],
+    };
+    need.iter().all(|e| has_encoder(encoders, e))
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MediaKind {
@@ -409,6 +459,34 @@ pub(crate) fn ffmpeg_failed(message: &str) -> VideoError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_follow_the_encoders_ffmpeg_has() {
+        // Like Homebrew's ffmpeg 9: no libwebp, no libvorbis.
+        let brew = "Encoders:\n V....D libx264              libx264 H.264\n V....D libvpx-vp9           libvpx VP9\n A....D libopus              libopus Opus\n A....D libmp3lame           libmp3lame MP3\n A..X.D vorbis               Vorbis\n V....D mjpeg                MJPEG\n";
+        assert!(has_encoder(brew, "libopus"));
+        assert!(!has_encoder(brew, "libvorbis"));
+        assert!(!has_encoder(brew, "libvpx"), "whole names only");
+        assert!(!can_make(Target::Webp, brew));
+        assert!(can_make(Target::Ogg, brew), "ffmpeg's own Vorbis");
+        for t in [
+            Target::Mp3,
+            Target::Mp4,
+            Target::Webm,
+            Target::Jpg,
+            Target::Png,
+            Target::Gif,
+            Target::Wav,
+            Target::Flac,
+            Target::M4a,
+        ] {
+            assert!(can_make(t, brew), "{t:?}");
+        }
+        assert!(
+            !can_make(Target::Webm, " V....D libvpx-vp9  VP9\n"),
+            "WebM needs Opus too"
+        );
+    }
 
     #[test]
     fn names_go_next_to_the_original() {

@@ -500,7 +500,15 @@ impl VideoService {
     /// Read a file for the Tools (see [`media::MediaInfo`]).
     pub async fn media_inspect(&self, path: &Path) -> Result<media::MediaInfo> {
         let ffprobe = self.require(Tool::Ffprobe)?;
-        media::probe::inspect(&ffprobe, path).await
+        let mut info = media::probe::inspect(&ffprobe, path).await?;
+        // Only formats this ffmpeg can make (a system ffmpeg may lack an encoder).
+        if !info.targets.is_empty()
+            && let Ok(ffmpeg) = self.require(Tool::Ffmpeg)
+            && let Some(list) = media::encoders(&ffmpeg).await
+        {
+            info.targets.retain(|t| media::can_make(*t, &list));
+        }
+        Ok(info)
     }
 
     /// Convert `info` into `target`, written to `out` (or the next free name next to it).
