@@ -177,9 +177,21 @@ pub fn open_progress(app: &AppHandle, id: &str) -> tauri::Result<()> {
 
 /// Closes the auto-opened progress popup for `id`, if one is open (used when the download
 /// finishes — the completion dialog takes over, so the simpler popup doesn't need to linger).
+/// Waits a moment first so the ring's finish animation is seen.
 pub fn close_progress(app: &AppHandle, id: &str) {
     if let Some(w) = app.get_webview_window(&format!("progress-{id}")) {
-        let _ = w.close();
+        let (app, id) = (app.clone(), id.to_string());
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+            // Restarted meanwhile: the window is in use again.
+            let active = app
+                .state::<prism_core::manager::Core>()
+                .item(&id)
+                .is_some_and(|i| i.status.is_active());
+            if !active {
+                let _ = w.close();
+            }
+        });
     }
 }
 

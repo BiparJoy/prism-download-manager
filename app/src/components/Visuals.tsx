@@ -1,7 +1,7 @@
-// Small data visuals: progress bar, file tile/thumbnail, speed chart, sparkline,
+// Small data visuals: progress bar and ring, file tile/thumbnail, speed chart, sparkline,
 // connection lanes and file map.
 
-import { memo, useId } from "react";
+import { memo, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../design/icons";
 import { formatBytes, formatClock, formatSpeed } from "../lib/format";
 import { t } from "../lib/i18n";
@@ -24,6 +24,94 @@ export function ProgressBar({ value, state, size, label }: { value: number | nul
     >
       <div className="progress__fill" />
     </div>
+  );
+}
+
+const RING_R = 44;
+const RING_C = 2 * Math.PI * RING_R;
+
+/** Circular progress with the same states as ProgressBar; children sit in the middle and
+ *  give way to a check mark once complete. */
+export function ProgressRing({ value, state, size = 96, label, children }: { value: number | null; state: ProgressState; size?: number; label?: string; children?: ReactNode }) {
+  const id = useId().replace(/:/g, "");
+  const indeterminate = value == null && state === "active";
+  const v = Math.min(1, Math.max(0, value ?? 0));
+  const offset = RING_C * (1 - (indeterminate ? 0.25 : v));
+  // Celebrate only a finish seen live, not opening an already-finished download. A layout
+  // effect so the burst starts before paint (no flash of a fully drawn check first).
+  const prev = useRef(state);
+  const [burst, setBurst] = useState(false);
+  useLayoutEffect(() => {
+    if (state === "completed" && prev.current !== "completed") setBurst(true);
+    if (state !== "completed") setBurst(false);
+    prev.current = state;
+  }, [state]);
+  return (
+    <div
+      className={`ring${burst ? " ring--burst" : ""}`}
+      data-state={indeterminate ? "indeterminate" : state}
+      style={{ width: size, height: size }}
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={state === "completed" ? 100 : value == null ? undefined : Math.round(v * 100)}
+    >
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <defs>
+          <linearGradient id={`rg${id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" className="ring__stop-a" />
+            <stop offset="100%" className="ring__stop-b" />
+          </linearGradient>
+          {/* The sweep is masked by the filled arc so it never runs over the empty track. */}
+          <mask id={`rm${id}`}>
+            <circle cx="50" cy="50" r={RING_R} className="ring__arc" stroke="#fff" strokeDasharray={RING_C} strokeDashoffset={offset} transform="rotate(-90 50 50)" />
+          </mask>
+        </defs>
+        <circle cx="50" cy="50" r={RING_R} className="ring__track" />
+        <g className="ring__spin">
+          <circle cx="50" cy="50" r={RING_R} className="ring__arc ring__fill" stroke={`url(#rg${id})`} strokeDasharray={RING_C} strokeDashoffset={offset} transform="rotate(-90 50 50)" />
+          <g mask={`url(#rm${id})`}>
+            <circle cx="50" cy="50" r={RING_R} className="ring__arc ring__sweep" strokeDasharray={`${RING_C * 0.16} ${RING_C}`} />
+          </g>
+        </g>
+        <g className="ring__head" style={{ transform: `rotate(${v * 360}deg)` }}>
+          <circle cx="50" cy={50 - RING_R} r="7" className="ring__head-glow" />
+          <circle cx="50" cy={50 - RING_R} r="4" className="ring__head-dot" />
+        </g>
+        <circle cx="50" cy="50" r={RING_R} className="ring__ripple" />
+        <circle cx="50" cy="50" r={RING_R} className="ring__ripple" />
+      </svg>
+      <div className="ring__label">
+        {state === "completed" ? (
+          <svg className="ring__check" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+            <path d="M9 17.5l5.5 5.5L25 12.5" />
+          </svg>
+        ) : (
+          children
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A number whose digits roll like an odometer; other characters are shown as is. */
+export function RollingNumber({ text }: { text: string }) {
+  return (
+    <span className="roll">
+      {[...text].map((ch, i) =>
+        /\d/.test(ch) ? (
+          // keyed from the right so units stay put when the number grows a digit
+          <span key={text.length - i} className="roll__col" aria-hidden="true" style={{ transform: `translateY(${-Number(ch)}em)` }}>
+            {"0123456789".split("").map((d) => (
+              <span key={d}>{d}</span>
+            ))}
+          </span>
+        ) : (
+          <span key={`c${text.length - i}`}>{ch}</span>
+        ),
+      )}
+    </span>
   );
 }
 

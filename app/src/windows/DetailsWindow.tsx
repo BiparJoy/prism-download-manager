@@ -2,7 +2,7 @@ import { useState } from "react";
 import { RateField, Switch } from "../components/Controls";
 import { IconButton } from "../components/IconButton";
 import { useItemDetails } from "../components/useItemDetails";
-import { ConnectionLanes, FileMap, FileTile, ProgressBar, SpeedChart } from "../components/Visuals";
+import { ConnectionLanes, FileMap, FileTile, ProgressRing, RollingNumber, SpeedChart } from "../components/Visuals";
 import { WindowFrame } from "../components/WindowFrame";
 import { Icon } from "../design/icons";
 import { api } from "../lib/api";
@@ -96,10 +96,12 @@ export default function DetailsWindow({ id, simple }: { id: string; simple?: boo
 
       <div className="meter">
         <div className="meter__row">
-          <div className="pct tnum">
-            {p.pct == null ? "—" : formatPct(p.pct).replace("%", "")}
-            <small>%</small>
-          </div>
+          <ProgressRing value={p.fraction} state={sv.bar} label={t("Progress")}>
+            <div className="pct tnum">
+              <RollingNumber text={p.pct == null ? "—" : formatPct(p.pct).replace("%", "")} />
+              <small>%</small>
+            </div>
+          </ProgressRing>
           <div className="of tnum">
             {tr("{done} of {total}", { done: <b>{formatBytes(p.done)}</b>, total: formatBytes(p.total) })}
           </div>
@@ -121,7 +123,6 @@ export default function DetailsWindow({ id, simple }: { id: string; simple?: boo
             </div>
           </div>
         </div>
-        <ProgressBar value={p.fraction} state={sv.bar} size="thick" label={t("Progress")} />
         <div className="map">
           <span>{t("File map")}</span>
           <FileMap segments={segments} size={item.size ?? 0} unit={unit} />

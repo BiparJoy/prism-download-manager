@@ -321,6 +321,49 @@ table { border-collapse: collapse; border-spacing: 0; }
   animation: prism-indeterminate 1.4s var(--ease-in-out) infinite;
 }
 
+/* Ring: circular twin of .progress (see ProgressRing). Same data-state values;
+   the arc tweens stroke-dashoffset at the engine tick, the sweep is masked to
+   the filled arc and spins on the compositor. */
+.ring { --_c: rgb(var(--accent-rgb)); position: relative; flex: none; }
+.ring > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ring__label { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.ring__track { fill: none; stroke: var(--track-bg); stroke-width: 7; }
+.ring__arc { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset var(--dur-progress) var(--ease-linear); }
+.ring__stop-a { stop-color: var(--accent-2); }
+.ring__stop-b { stop-color: var(--accent); }
+.ring:not([data-state="active"]) .ring__fill { stroke: var(--_c); }
+.ring[data-state="active"] > svg { filter: drop-shadow(0 0 4px rgb(var(--accent-rgb) / 0.5)); }
+.ring__sweep, .ring__head, .ring__spin { transform-box: view-box; transform-origin: 50% 50%; }
+.ring__sweep { stroke: #fff; stroke-opacity: 0; transition: stroke-opacity var(--dur-base); }
+.ring[data-state="active"] .ring__sweep { stroke-opacity: 0.55; animation: prism-spin 2.2s var(--ease-in-out) infinite; }
+.ring__head { transition: transform var(--dur-progress) var(--ease-linear), opacity var(--dur-base); }
+.ring__head-dot { fill: var(--surface-base); stroke: var(--_c); stroke-width: 2.6; }
+.ring__head-glow { fill: none; }
+.ring[data-state="active"] .ring__head-glow { fill: rgb(var(--accent-rgb) / 0.35); animation: prism-pulse 1.6s var(--ease-in-out) infinite; }
+.ring[data-state="completed"] .ring__head,
+.ring[data-state="indeterminate"] .ring__head { opacity: 0; }
+.ring[data-state="indeterminate"] .ring__spin { animation: prism-spin 1.1s linear infinite; }
+.ring[data-state="paused"]    { --_c: rgb(var(--warning-rgb) / 0.85); }
+.ring[data-state="queued"]    { --_c: rgb(var(--neutral-rgb) / 0.55); }
+.ring[data-state="completed"] { --_c: rgb(var(--success-rgb) / 0.8); }
+.ring[data-state="error"]     { --_c: rgb(var(--danger-rgb) / 0.9); }
+/* Finish: the arc flashes, two ripples spread, the check draws itself. Only with
+   .ring--burst (a finish seen live); otherwise the check is simply there. */
+.ring__ripple { fill: none; stroke: rgb(var(--success-rgb)); stroke-width: 3; opacity: 0; transform-box: view-box; transform-origin: 50% 50%; }
+.ring--burst .ring__ripple { animation: ring-ripple 900ms var(--ease-out) both; }
+.ring--burst .ring__ripple + .ring__ripple { animation-delay: 150ms; }
+.ring--burst .ring__fill { animation: ring-flash 700ms var(--ease-out) both; }
+.ring__check { display: block; fill: none; stroke: rgb(var(--success-rgb)); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 26; }
+.ring--burst .ring__check { animation: ring-draw 500ms 250ms var(--ease-out) both; }
+@keyframes ring-ripple { from { opacity: 0.7; transform: scale(0.92); } to { opacity: 0; transform: scale(1.35); } }
+@keyframes ring-flash { 30% { stroke-width: 10; } }
+@keyframes ring-draw { from { stroke-dashoffset: 26; } to { stroke-dashoffset: 0; } }
+
+/* Odometer digits (RollingNumber): each digit is a 0–9 column slid into view. */
+.roll { direction: ltr; unicode-bidi: isolate; display: inline-flex; height: 1em; line-height: 1; overflow: hidden; vertical-align: top; }
+.roll__col { display: flex; flex-direction: column; transition: transform var(--dur-progress) var(--ease-out); }
+.roll__col > span { height: 1em; }
+
 @keyframes prism-shimmer {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(260%); }
@@ -373,6 +416,7 @@ table { border-collapse: collapse; border-spacing: 0; }
   }
   .progress[data-state="active"] .progress__fill::after { display: none; }
   .progress__fill { transition: none; }
+  .ring__sweep { visibility: hidden; }
 }
 /* App-level override (Settings → Appearance → Reduce motion). */
 .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after {
@@ -380,3 +424,4 @@ table { border-collapse: collapse; border-spacing: 0; }
   animation-iteration-count: 1 !important;
   transition-duration: 1ms !important;
 }
+.reduce-motion .ring__sweep { visibility: hidden; }
