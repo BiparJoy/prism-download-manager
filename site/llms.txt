@@ -1,0 +1,22 @@
+# Prism Download Manager
+
+> Prism is a free, open-source (MIT) download manager and download accelerator for Windows 10/11, macOS 11+ (Apple Silicon and Intel) and 64-bit Linux (deb, rpm, AppImage). It splits each file across up to 32 connections (8 by default), resumes interrupted downloads after crashes or power cuts, catches downloads from Chrome, Edge, Brave, Opera, Vivaldi, Helium and Firefox through its browser extension, downloads video and audio from sites supported by yt-dlp, handles BitTorrent and magnet links, and downloads AI models from Hugging Face (GGUF, safetensors) checked by SHA-256. No ads, no account, no telemetry. Written in Rust with a Tauri UI, available in 9 languages.
+
+Prism is a clean-room project and is not affiliated with Internet Download Manager (IDM). It has not been benchmarked against IDM; its published benchmarks compare it with aria2c and curl.
+
+## Pages
+
+- [Home](https://prismdl.site/): features, benchmarks, downloads, install guide and FAQ
+- [Prism for Windows](https://prismdl.site/windows/): installer, MSI and portable version for Windows 10 and 11
+- [Prism for Mac](https://prismdl.site/mac/): Apple Silicon and Intel builds, first-run steps
+- [Prism for Linux](https://prismdl.site/linux/): deb, rpm and AppImage, browser integration on Linux
+- [Browser extension](https://prismdl.site/browser-extension/): what the extension does, supported browsers, privacy
+- [An alternative to IDM](https://prismdl.site/idm-alternative/): IDM workflows in Prism and how to switch
+- [Hugging Face models](https://prismdl.site/hugging-face/): downloading GGUF and safetensors models
+
+## Project
+
+- [Source code (GitHub)](https://github.com/FortoGraphy/prism-download-manager)
+- [Releases](https://github.com/FortoGraphy/prism-download-manager/releases)
+- [Chrome Web Store extension](https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl)
+- [Benchmarks and method](https://github.com/FortoGraphy/prism-download-manager/blob/main/docs/benchmarks.md)

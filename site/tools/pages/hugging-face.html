@@ -1,0 +1,156 @@
+<!--
+title: Download GGUF Models from Hugging Face, Fast — Prism
+description: A free Hugging Face downloader for Windows, Mac and Linux: search or paste a model, get only the files you need (one GGUF quantization or one weights format), many connections per file, every file checked by SHA-256.
+og_title: Prism — download GGUF models from Hugging Face, fast
+crumb: Hugging Face models
+-->
+<section class="lp-hero" aria-labelledby="lp-title">
+  <div class="hero-bg" aria-hidden="true"></div>
+  <div class="container">
+    <div class="hero-copy">
+      <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Prism</a></li><li aria-current="page">Hugging Face models</li></ol></nav>
+      <p class="eyebrow">AI models · new in Prism 1.1.7</p>
+      <h1 class="lp-title" id="lp-title">Download GGUF and safetensors models from Hugging Face — fast and verified</h1>
+      <p class="lede">Search for a model, type its name or paste its link. Prism picks the files you need — one quantization of a GGUF model, or the weights in one format with the configs and tokenizer beside them — downloads each over many connections, and checks every weights file against the SHA-256 Hugging Face lists.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-xl" href="#download" data-dl-primary>
+          <svg class="i" aria-hidden="true"><use href="#i-download"/></svg>
+          <span data-dl-label>Download Prism</span>
+        </a>
+        <a class="btn btn-glass btn-xl" href="#how">How it works</a>
+      </div>
+      <p class="cta-meta" data-dl-meta>Windows · macOS · Linux — 64-bit</p>
+    </div>
+    <div class="shot shot-main lp-shot">
+      <picture class="tv-dark">
+        <source type="image/avif" srcset="/assets/img/hf-queue-dark.avif 1600w, /assets/img/hf-queue-dark-960.avif 960w, /assets/img/hf-queue-dark-640.avif 640w" sizes="(min-width: 1300px) 1216px, 94vw">
+        <img src="/assets/img/hf-queue-dark.webp" srcset="/assets/img/hf-queue-dark.webp 1600w, /assets/img/hf-queue-dark-960.webp 960w, /assets/img/hf-queue-dark-640.webp 640w" sizes="(min-width: 1300px) 1216px, 94vw" width="1600" height="1000" alt="Prism's Hugging Face queue: a 15.7 GB GGUF file downloading over 16 connections at 24 MB/s, with the model's configs, tokenizer and weights already completed." fetchpriority="high" decoding="async">
+      </picture>
+      <picture class="tv-light">
+        <source type="image/avif" srcset="/assets/img/hf-queue-light.avif 1600w, /assets/img/hf-queue-light-960.avif 960w, /assets/img/hf-queue-light-640.avif 640w" sizes="(min-width: 1300px) 1216px, 94vw">
+        <img src="/assets/img/hf-queue-light.webp" srcset="/assets/img/hf-queue-light.webp 1600w, /assets/img/hf-queue-light-960.webp 960w, /assets/img/hf-queue-light-640.webp 640w" sizes="(min-width: 1300px) 1216px, 94vw" width="1600" height="1000" alt="The Hugging Face queue in the light theme." loading="lazy" decoding="async">
+      </picture>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="how" aria-labelledby="how-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="eyebrow">How it works</p>
+      <h2 class="h2" id="how-title">From a model name to verified files.</h2>
+      <p class="lede">No Python, no command line: the model window is part of the download manager.</p>
+    </div>
+    <div class="panel-grid">
+      <div class="panel reveal">
+        <h3 class="h3" style="margin-bottom:1.3rem">Step by step</h3>
+        <ol class="steps">
+          <li><div><h4>Open the model window</h4><p>Click the model button in the toolbar, or paste a model’s name like <code>Qwen/Qwen3-8B</code> — or its link — into <em>Add URL</em>. A link to a model’s page opens the model window; a link to a single file’s page downloads that file.</p></div></li>
+          <li><div><h4>Pick a version</h4><p>For a GGUF model, each quantization is listed with its size, and Q4_K_M is picked unless you choose another; a vision model’s <code>mmproj</code> file comes along. For other models Prism takes the weights in one format (safetensors when there are any) with the configs and tokenizer.</p></div></li>
+          <li><div><h4>Download</h4><p>The files go into the <em>Hugging Face</em> queue and download one after another, each over many connections. Files you already have are skipped.</p></div></li>
+          <li><div><h4>Verified</h4><p>Every weights file is checked against the SHA-256 that Hugging Face lists for it.</p></div></li>
+        </ol>
+      </div>
+      <div class="lp-gallery reveal d1">
+        <figure>
+          <div class="shot">
+            <picture class="tv-dark"><source type="image/avif" srcset="/assets/img/hf-search-dark.avif"><img src="/assets/img/hf-search-dark.webp" width="1000" height="895" alt="Searching Hugging Face for qwen3.8 in Prism: matching models with GGUF tags and download counts." loading="lazy" decoding="async"></picture>
+            <picture class="tv-light"><source type="image/avif" srcset="/assets/img/hf-search-light.avif"><img src="/assets/img/hf-search-light.webp" width="1000" height="895" alt="Searching Hugging Face in the light theme." loading="lazy" decoding="async"></picture>
+          </div>
+          <figcaption>Search right in Prism.</figcaption>
+        </figure>
+        <figure>
+          <div class="shot">
+            <picture class="tv-dark"><source type="image/avif" srcset="/assets/img/hf-model-dark.avif"><img src="/assets/img/hf-model-dark.webp" width="1000" height="895" alt="The model window for a GGUF model: versions Q4_K_M, Q6_K and Q8_0 with their sizes, Q4_K_M and the mmproj file selected, 412 GB free." loading="lazy" decoding="async"></picture>
+            <picture class="tv-light"><source type="image/avif" srcset="/assets/img/hf-model-light.avif"><img src="/assets/img/hf-model-light.webp" width="1000" height="895" alt="The model window in the light theme." loading="lazy" decoding="async"></picture>
+          </div>
+          <figcaption>Pick a quantization; Prism picks the files.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features" aria-labelledby="features-title" style="padding-top:0">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="eyebrow">Details</p>
+      <h2 class="h2" id="features-title">Made for big model files.</h2>
+    </div>
+    <div class="bento">
+      <article class="tile span-2 reveal">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-lock"/></svg></div>
+        <h3 class="h3">Gated and private models</h3>
+        <p>Add an access token in Settings › AI models, or let Prism use the one <code>hf auth login</code> saved. The token goes only to Hugging Face, never to the servers the files come from.</p>
+      </article>
+      <article class="tile span-2 reveal d1">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-globe"/></svg></div>
+        <h3 class="h3">Mirrors</h3>
+        <p>Download from a mirror such as hf-mirror.com, or whatever <code>HF_ENDPOINT</code> points to.</p>
+      </article>
+      <article class="tile span-2 reveal d2">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-folder"/></svg></div>
+        <h3 class="h3">Straight into LM Studio</h3>
+        <p>Files go to <code>Downloads/Models/&lt;owner&gt;/&lt;model&gt;</code>, or one click saves them into LM Studio’s models folder.</p>
+      </article>
+      <article class="tile span-2 reveal">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-bolt"/></svg></div>
+        <h3 class="h3">Slow download? More connections</h3>
+        <p>Each file is split across up to 32 connections, which helps most when a single connection is slow or limited.</p>
+      </article>
+      <article class="tile span-2 reveal d1">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-retry"/></svg></div>
+        <h3 class="h3">Resume 20 GB files</h3>
+        <p>Pause tonight, continue tomorrow, survive a crash: Prism resumes from the last byte it safely wrote.</p>
+      </article>
+      <article class="tile span-2 reveal d2">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-scheduler"/></svg></div>
+        <h3 class="h3">Overnight, on schedule</h3>
+        <p>The Hugging Face queue is a queue like any other: give it a schedule and a speed limit.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="download" aria-labelledby="download-title" style="padding-top:0">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="eyebrow">Download</p>
+      <h2 class="h2" id="download-title">Free. For every desktop.</h2>
+      <p class="lede">The model downloader is part of Prism 1.1.7 and later, on Windows, macOS and Linux.</p>
+    </div>
+{{dl:all}}
+  </div>
+</section>
+
+<section class="section" id="faq" aria-labelledby="faq-title" style="padding-top:0">
+  <div class="container faq-wrap">
+    <div class="section-head reveal">
+      <p class="eyebrow">FAQ</p>
+      <h2 class="h2" id="faq-title">Hugging Face downloads, answered.</h2>
+      <p class="lede">Prism isn’t affiliated with Hugging Face.</p>
+    </div>
+    <div class="accordion reveal d1" data-faq>
+      <details class="acc" open><summary>How do I download a model from Hugging Face with Prism?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Click the model button in the toolbar (or paste a model’s name like <code>Qwen/Qwen3-8B</code>, or its link, into <em>Add URL</em>). Pick a version if the model has several, and click <em>Download</em>: the files go into the <em>Hugging Face</em> queue.</p></div></details>
+      <details class="acc"><summary>Which GGUF file does Prism pick?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>One quantization: Q4_K_M unless you choose another version in the model window, plus the model’s <code>mmproj</code> file when it has one. You can also tick files by hand, or select all.</p></div></details>
+      <details class="acc"><summary>Why is my Hugging Face download slow?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Often because one connection is slow — the route to the server, a proxy, or a limit per connection. Prism downloads each file over several connections at once, which helps in exactly those cases, and a big file that gets interrupted continues instead of starting over. If you already download at your line’s full speed, nothing can go faster.</p></div></details>
+      <details class="acc"><summary>Can I download all the files of a model?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. In the model window, <em>Select all</em> ticks every file in the repository, and <em>Recommended</em> goes back to Prism’s pick. You can also tick files one by one.</p></div></details>
+      <details class="acc"><summary>Can it download gated or private models?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes, with an access token: add one in Settings › AI models, or Prism uses the one <code>hf auth login</code> saved. The token is sent only to Hugging Face, never to the servers the files are redirected to, and it isn’t stored with the downloads. For gated models, accept the model’s terms on huggingface.co first.</p></div></details>
+      <details class="acc"><summary>Does it work with hf-mirror.com?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. Choose a mirror such as hf-mirror.com in Settings › AI models, or set <code>HF_ENDPOINT</code>.</p></div></details>
+      <details class="acc"><summary>Does Prism check the downloaded files?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. Every weights file is checked against the SHA-256 Hugging Face lists for it, and files you already have are skipped.</p></div></details>
+      <details class="acc"><summary>Can LM Studio use the models Prism downloads?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. When LM Studio is installed, the model window offers <em>Save into LM Studio’s models folder</em>, and the files land where LM Studio looks for them.</p></div></details>
+    </div>
+  </div>
+</section>
+
+{{related}}
+
+{{cta}}

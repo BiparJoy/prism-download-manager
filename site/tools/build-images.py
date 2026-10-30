@@ -14,7 +14,7 @@ os.makedirs(OUT, exist_ok=True)
 
 # name -> (source file stem, crop box in source px or None, output widths)
 SHOTS = {
-    "main":      ("main",      None,                   [2400, 1600, 960]),
+    "main":      ("main",      None,                   [2400, 1600, 960, 640]),
     "details":   ("details",   None,                   [1140]),
     "video":     ("video",     None,                   [1020]),
     "capture":   ("capture",   None,                   [900]),
@@ -23,6 +23,10 @@ SHOTS = {
     "scheduler": ("scheduler", (561, 204, 2319, 1596), [1100]),
     "grabber":   ("grabber",   (540, 201, 2340, 1599), [1100]),
     "settings":  ("settings",  (402, 180, 2481, 1620), [1100]),
+    # Hugging Face model downloader (1.1.7): the index feature and site/hugging-face/.
+    "hf-model":  ("hf-model",  None,                   [1000]),
+    "hf-search": ("hf-search", None,                   [1000]),
+    "hf-queue":  ("hf-queue",  None,                   [1600, 960, 640]),
 }
 
 def save(im, stem, avif=True):

@@ -3,25 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Prism — the fast, beautiful, open-source download manager</title>
-<meta name="description" content="Prism is a free, open-source download manager for Windows, macOS and Linux. Up to 32 connections per file, browser capture, video downloads from 1000+ sites, queues, scheduler, site grabber and torrents — in a liquid-glass UI. No ads, no tracking.">
+<title>Prism — Free Open-Source Download Manager for Windows, Mac, Linux</title>
+<meta name="description" content="Prism is a free, open-source download manager and accelerator for Windows, macOS and Linux: up to 32 connections per file, crash-safe resume, a browser extension, video, torrent and Hugging Face model downloads. No ads.">
 <link rel="canonical" href="https://prismdl.site/">
+<!-- Search Console / Bing verification tags go here (see site/tools/SEO.md). -->
 <meta name="theme-color" content="#07080b" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f4f5f8" media="(prefers-color-scheme: light)">
 <meta name="color-scheme" content="dark light">
 
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Prism">
-<meta property="og:title" content="Prism — One beam. Many rays.">
-<meta property="og:description" content="The fast, beautiful, open-source download manager. Multi-connection engine, browser capture, video downloads, queues & scheduler. Windows · macOS · Linux.">
+<meta property="og:site_name" content="Prism Download Manager">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Prism — the free, open-source download manager">
+<meta property="og:description" content="Up to 32 connections per file, crash-safe resume, browser capture, video, torrent and Hugging Face model downloads. Windows · macOS · Linux. No ads, no tracking.">
 <meta property="og:url" content="https://prismdl.site/">
 <meta property="og:image" content="https://prismdl.site/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Prism download manager — One beam. Many rays.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Prism — One beam. Many rays.">
-<meta name="twitter:description" content="The fast, beautiful, open-source download manager for Windows, macOS and Linux.">
+<meta name="twitter:title" content="Prism — the free, open-source download manager">
+<meta name="twitter:description" content="The fast, free, open-source download manager for Windows, macOS and Linux.">
 <meta name="twitter:image" content="https://prismdl.site/og.png">
 
 <link rel="icon" href="favicon.ico" sizes="48x48">
@@ -43,24 +45,213 @@
   })();
 </script>
 <link rel="stylesheet" href="assets/css/tokens.css?v=1.1.7">
-<link rel="stylesheet" href="assets/css/site.css?v=1.1.7.1">
+<link rel="stylesheet" href="assets/css/site.css?v=1.1.7.3">
 <script src="assets/js/site.js?v=1.1.7" defer></script>
+<!-- The landing pages (site/tools/build-pages.py) reuse the "SoftwareApplication" node below. -->
+<script type="application/ld+json" id="ld-site">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://prismdl.site/#website",
+      "url": "https://prismdl.site/",
+      "name": "Prism Download Manager",
+      "alternateName": "Prism",
+      "inLanguage": "en",
+      "publisher": { "@id": "https://prismdl.site/#author" }
+    },
+    {
+      "@type": "Person",
+      "@id": "https://prismdl.site/#author",
+      "name": "Jan Sechovec",
+      "url": "https://github.com/FortoGraphy"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://prismdl.site/#app",
+      "name": "Prism Download Manager",
+      "alternateName": "Prism",
+      "description": "Free, open-source download manager and download accelerator for Windows, macOS and Linux. Splits each file across up to 32 connections, resumes after crashes, catches downloads from Chrome, Edge, Firefox and other browsers, and downloads videos, torrents and Hugging Face AI models.",
+      "url": "https://prismdl.site/",
+      "applicationCategory": "UtilitiesApplication",
+      "applicationSubCategory": "Download manager",
+      "operatingSystem": "Windows 10, Windows 11, macOS 11 or later, Linux",
+      "softwareVersion": "1.1.7",
+      "dateModified": "2026-10-29",
+      "releaseNotes": "https://github.com/FortoGraphy/prism-download-manager/releases/tag/v1.1.7",
+      "downloadUrl": "https://github.com/FortoGraphy/prism-download-manager/releases/latest",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "image": "https://prismdl.site/og.png",
+      "screenshot": [
+        "https://prismdl.site/assets/img/main-dark-1600.webp",
+        "https://prismdl.site/assets/img/video-dark.webp",
+        "https://prismdl.site/assets/img/hf-model-dark.webp"
+      ],
+      "featureList": [
+        "Up to 32 connections per file with dynamic segmentation",
+        "Crash-safe resume of interrupted downloads",
+        "Browser extension for Chrome, Edge, Brave, Opera, Vivaldi and Firefox",
+        "Video and audio downloads from YouTube and other sites supported by yt-dlp (MP4 or MP3)",
+        "BitTorrent and magnet links",
+        "Hugging Face AI model downloads (GGUF, safetensors) checked by SHA-256",
+        "HTTP, HTTPS, FTP, FTPS, HLS and DASH",
+        "Queues, scheduler, speed limits, site grabber and batch downloads",
+        "No ads, no account, no telemetry"
+      ],
+      "author": { "@id": "https://prismdl.site/#author" },
+      "sameAs": [
+        "https://github.com/FortoGraphy/prism-download-manager",
+        "https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl",
+        "https://www.youtube.com/@PrismDownloader"
+      ]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "@id": "https://prismdl.site/#source",
+      "name": "Prism Download Manager source code",
+      "codeRepository": "https://github.com/FortoGraphy/prism-download-manager",
+      "programmingLanguage": ["Rust", "TypeScript"],
+      "license": "https://opensource.org/licenses/MIT",
+      "targetProduct": { "@id": "https://prismdl.site/#app" },
+      "author": { "@id": "https://prismdl.site/#author" }
+    },
+    {
+      "@type": "VideoObject",
+      "@id": "https://prismdl.site/#film",
+      "name": "Prism – A Fast, Beautiful, Free & Open-Source Download Manager",
+      "description": "A two-minute film: Prism catches a download from the browser, splits it into many connections and finishes it while you sleep.",
+      "thumbnailUrl": [
+        "https://prismdl.site/assets/img/film-poster.webp",
+        "https://i.ytimg.com/vi/IkZu0XN2lLQ/maxresdefault.jpg"
+      ],
+      "uploadDate": "2026-10-15T03:25:11-07:00",
+      "duration": "PT2M2S",
+      "embedUrl": "https://www.youtube.com/embed/IkZu0XN2lLQ",
+      "contentUrl": "https://github.com/FortoGraphy/prism-download-manager/releases/download/v1.0.0/prism-promo-2min.mp4",
+      "about": { "@id": "https://prismdl.site/#app" }
+    }
+  ]
+}
+</script>
+<!-- faq-jsonld: written by site/tools/build-pages.py from the FAQ below; edit the FAQ, not this. -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Prism",
-  "description": "Fast, beautiful, open-source download manager with a multi-connection engine, browser integration, video downloads, queues, scheduler and site grabber.",
-  "applicationCategory": "UtilitiesApplication",
-  "operatingSystem": "Windows 10, Windows 11, macOS 11+, Linux",
-  "softwareVersion": "1.1.7",
-  "license": "https://opensource.org/licenses/MIT",
+  "@type": "FAQPage",
+  "@id": "https://prismdl.site/#faq",
   "url": "https://prismdl.site/",
-  "downloadUrl": "https://github.com/FortoGraphy/prism-download-manager/releases/latest",
-  "image": "https://prismdl.site/og.png",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is Prism really free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Prism is a free, open-source download manager under the MIT license — no trial, no paid tier, no ads, no account. Bundled or downloaded components (yt-dlp, ffmpeg and others) keep their own licenses."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is it safe to install?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Every line of code is public, and release builds are produced by GitHub Actions from that source. Each release lists SHA-256 checksums so you can verify your file. Prism collects no telemetry, and its browser extension only talks to the app on your own computer. Windows SmartScreen and macOS Gatekeeper may warn on first run simply because the builds aren’t signed with paid certificates yet — see the guide."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Prism an alternative to IDM (Internet Download Manager)?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "For the workflows people use IDM for — yes: dynamic multi-connection downloads, a browser “download this” window, video grabbing, categories, queues with schedules, a site grabber, a speed limiter and batch downloads. Prism is free, open source and runs on Windows, macOS and Linux. It’s a clean-room implementation and isn’t affiliated with Internet Download Manager, and we haven’t benchmarked IDM yet (see Benchmarks). More in Prism as an IDM alternative."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Prism make downloads faster?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Often, yes. Many servers and mirrors limit the speed of each connection. Prism works as a download accelerator: it splits a file across several connections (8 by default, up to 32), so in our test a 1 GiB file from such a server finished 15× faster than over a single connection. When a server doesn’t limit connections, a good downloader simply fills your line, and nothing beats the line itself: on a real ≈ 200 Mbit/s connection Prism, aria2c and curl all finished at the same speed. The benchmarks show both cases."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can it resume broken or interrupted downloads?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Pause, close the laptop, lose the connection or the power: Prism writes data to disk before it saves its progress, so it continues from the last byte it safely wrote. On resume it checks the file’s size, ETag and Last-Modified with the server, so a file that changed in the meantime is never stitched together from two versions. The Download window shows whether a server supports resuming before you start."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which sites can it download videos from?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Every site yt-dlp supports — more than a thousand, including YouTube, Vimeo, Twitch, X, Instagram, TikTok, Reddit and SoundCloud. Pick MP4 in the quality you want (up to 8K HDR) or just the MP3, with subtitles, chapters and SponsorBlock. Prism installs yt-dlp, ffmpeg and deno for you, verifies them by SHA-256 and keeps yt-dlp updated. Only download content you have the right to."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Prism download torrents and magnet links?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Prism opens magnet: links and .torrent files in its own torrent window: pick the files you want, the folder, the category and the queue, and see the free space before you start. A torrent with several files gets a folder of its own."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can it download AI models from Hugging Face?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, since 1.1.7. Click the model button in the toolbar, or paste a model’s name like Qwen/Qwen3-8B or its link into Add URL. Prism picks the files you need — for GGUF models one quantization, Q4_K_M unless you choose another — downloads them over many connections and checks each against its SHA-256. Gated and private models work with an access token. How it works."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which browsers does the extension work with?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Chrome, Edge, Brave, Opera, Vivaldi and Helium add it from the Chrome Web Store in one click, and the store keeps it up to date. Firefox and Zen use prism-firefox.zip: Prism isn’t in Firefox Add-ons yet, so regular Firefox keeps it until restart, while Developer Edition, Nightly and ESR can keep it permanently. How to install it · more about the extension."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which systems and languages does Prism support?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Windows 10 and 11 (64-bit), macOS 11 Big Sur or later on Apple Silicon and Intel, and 64-bit Linux as a deb, rpm or AppImage. The app speaks English, Czech, German, Spanish, French, Italian, Indonesian, Turkish and Arabic, and follows your system’s language."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is there a Flatpak? What about Snap browsers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Prism ships as deb, rpm and AppImage. There’s no Flatpak yet: browser integration relies on a native helper, which a sandboxed app can’t register without extra work. Flatpak browsers can’t start native helpers at all, so for full integration use a browser from a deb/rpm package; Snap Firefox works after a one-time permission prompt."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does macOS say the app can’t be opened?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The macOS build isn’t notarized by Apple yet, so macOS blocks it the first time (it may also close it after a few seconds). Allow it once with System Settings → Privacy & Security → Open Anyway, or clear the quarantine flag in Terminal. Updates installed from inside Prism don’t need this again. xattr -dr com.apple.quarantine /Applications/Prism.app"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How can I help?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Star the repo and tell a friend — it genuinely helps. Bug reports, translations, docs and pull requests are all welcome; start with CONTRIBUTING.md. Have a licensed IDM? Running the benchmark harness and sharing the numbers would be great."
+      }
+    }
+  ]
 }
 </script>
+<!-- /faq-jsonld -->
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -237,9 +428,9 @@
 
   <div class="container hero-inner">
     <div class="hero-copy">
-      <a class="hero-pill" href="#film"><span class="tag">v1.0</span> Free &amp; open source — watch the film <svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
-      <h1 id="hero-title"><span class="line">One beam.</span> <span class="line grad-text">Many rays.</span></h1>
-      <p class="tagline">The fast, beautiful, open-source download manager.</p>
+      <a class="hero-pill" href="#ai-models"><span class="tag">New</span> Download AI models from Hugging Face <svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+      <p class="hero-title"><span class="line">One beam.</span> <span class="line grad-text">Many rays.</span></p>
+      <h1 class="tagline" id="hero-title">The fast, free, open-source download manager for Windows, macOS and Linux.</h1>
       <p class="sub">Prism splits every file across up to 32 connections, catches downloads and videos straight from your browser, and picks up exactly where it left off — even after a crash.</p>
       <div class="cta-row">
         <a class="btn btn-primary btn-xl" href="#download" data-dl-primary>
@@ -450,6 +641,28 @@
             <picture class="tv-dark"><source type="image/avif" srcset="assets/img/video-dark.avif"><img src="assets/img/video-dark.webp" width="1020" height="960" alt="Download video dialog: quality list from 2160p60 HDR down to 480p, plus audio-only MP3, M4A and Opus." loading="lazy" decoding="async"></picture>
             <picture class="tv-light"><source type="image/avif" srcset="assets/img/video-light.avif"><img src="assets/img/video-light.webp" width="1020" height="960" alt="Download video dialog in the light theme." loading="lazy" decoding="async"></picture>
           </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- AI models -->
+    <article class="feature flip" id="ai-models">
+      <div class="feature-copy reveal">
+        <p class="eyebrow">AI models · new in 1.1.7</p>
+        <h3 class="h2">Hugging Face models. Just the files you need.</h3>
+        <p class="lede">Type a model’s name, paste its link or search. Prism picks the right files — one GGUF version (Q4_K_M unless you choose another), or the weights in one format with the configs and tokenizer beside them — downloads each over many connections and checks it against the SHA-256 Hugging Face lists.</p>
+        <ul class="checks">
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Gated and private models</strong> with your access token, which goes only to Hugging Face.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Save straight into <strong>LM Studio’s models folder</strong>, or anywhere you like.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Mirrors such as hf-mirror.com work too; files you already have are skipped.</span></li>
+        </ul>
+        <p class="feature-more"><a class="link" href="/hugging-face/">How the Hugging Face model downloader works</a></p>
+      </div>
+      <div class="feature-media reveal d1">
+        <div class="media-glow" aria-hidden="true"></div>
+        <div class="shot shot-narrow">
+          <picture class="tv-dark"><source type="image/avif" srcset="assets/img/hf-model-dark.avif"><img src="assets/img/hf-model-dark.webp" width="1000" height="895" alt="Download a model window for lmstudio-community/Qwen3.8-27B-GGUF: versions Q4_K_M, Q6_K and Q8_0, with the Q4_K_M file and its mmproj file selected." loading="lazy" decoding="async"></picture>
+          <picture class="tv-light"><source type="image/avif" srcset="assets/img/hf-model-light.avif"><img src="assets/img/hf-model-light.webp" width="1000" height="895" alt="Download a model window in the light theme." loading="lazy" decoding="async"></picture>
         </div>
       </div>
     </article>
@@ -694,6 +907,7 @@
             <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></a></li>
         </ul>
         <p class="dl-tip"><strong>First run:</strong> SmartScreen may say “Windows protected your PC” because the installer isn’t signed with a paid certificate. Click <strong>More info → Run anyway</strong>.</p>
+        <p class="dl-more"><a class="link" href="/windows/">Prism for Windows: features and setup</a></p>
       </article>
 
       <article class="dl-card reveal d1" data-os="mac">
@@ -712,6 +926,7 @@
         </ul>
         <p class="dl-tip"><strong>First run:</strong> the app isn’t notarized by Apple yet, so macOS blocks it once. Run <code>xattr -dr com.apple.quarantine /Applications/Prism.app</code> in Terminal, or use <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>. Not sure which Mac you have? Apple menu → About This Mac → <em>Chip</em>.</p>
         <p class="dl-tip"><strong>Browser extension included:</strong> the DMG has a <em>Browser Extension</em> folder next to Prism — drag it to Documents, then load it in Chrome (Prism guides you on first start).</p>
+        <p class="dl-more"><a class="link" href="/mac/">Prism for Mac: features and setup</a></p>
       </article>
 
       <article class="dl-card reveal d2" data-os="linux">
@@ -733,6 +948,7 @@
             <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></a></li>
         </ul>
         <p class="dl-tip"><strong>Tip:</strong> deb and rpm pull in ffmpeg and register the browser helper for Chrome, Chromium, Edge and Firefox. With AppImage, install ffmpeg from your distribution for video features.</p>
+        <p class="dl-more"><a class="link" href="/linux/">Prism for Linux: features and setup</a></p>
       </article>
     </div>
 
@@ -740,7 +956,7 @@
       <article class="tile reveal">
         <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-puzzle"/></svg></div>
         <h3 class="h3">Browser extension</h3>
-        <p>Install the app first, then add the extension — it’s what lets Prism catch downloads and videos. One click from the Chrome Web Store, and it updates by itself. <a href="#guide-extension">Step-by-step guide</a>.</p>
+        <p>Install the app first, then add the extension — it’s what lets Prism catch downloads and videos. One click from the Chrome Web Store, and it updates by itself. <a href="#guide-extension">Step-by-step guide</a> · <a href="/browser-extension/">what the extension does</a>.</p>
         <div class="mini-links">
           <a class="btn btn-primary btn-sm" href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-puzzle"/></svg>Chrome Web Store</a>
           <a class="btn btn-glass btn-sm" href="https://github.com/FortoGraphy/prism-download-manager/releases/download/v1.1.7/prism-firefox.zip" data-asset="ext-firefox"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Firefox</a>
@@ -1049,22 +1265,32 @@ sha256sum -c SHA256SUMS.txt --ignore-missing</pre><button class="copy-btn" type=
       <h2 class="h2" id="faq-title">Questions, answered.</h2>
       <p class="lede">Something else? <a href="https://github.com/FortoGraphy/prism-download-manager/discussions">Ask in Discussions</a> or <a href="https://github.com/FortoGraphy/prism-download-manager/issues">open an issue</a>.</p>
     </div>
-    <div class="accordion reveal d1">
+    <div class="accordion reveal d1" data-faq>
       <details class="acc" open><summary>Is Prism really free?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Yes. Prism is open source under the MIT license — no trial, no paid tier, no ads, no account. Bundled or downloaded components (yt-dlp, ffmpeg and others) keep their own licenses.</p></div></details>
+        <div class="acc-body"><p>Yes. Prism is a free, open-source download manager under the MIT license — no trial, no paid tier, no ads, no account. Bundled or downloaded components (yt-dlp, ffmpeg and others) keep their own licenses.</p></div></details>
       <details class="acc"><summary>Is it safe to install?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>Every line of code is public, and release builds are produced by GitHub Actions from that source. Each release lists SHA-256 checksums so you can verify your file. Prism collects no telemetry, and its browser extension only talks to the app on your own computer.</p><p>Windows SmartScreen and macOS Gatekeeper may warn on first run simply because the builds aren’t signed with paid certificates yet — see the <a href="#guide">guide</a>.</p></div></details>
-      <details class="acc"><summary>Does it work like IDM?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>For the workflows people love IDM for — yes: dynamic multi-connection downloads, a browser “download this” window, video grabbing, categories, queues with schedules, a site grabber, a speed limiter and batch downloads. Prism is a clean-room implementation and isn’t affiliated with Internet Download Manager. We haven’t benchmarked IDM yet (see <a href="#benchmarks">Benchmarks</a>).</p></div></details>
-      <details class="acc"><summary>Does it work with Firefox?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Yes — the extension supports Firefox as well as Chrome, Edge, Brave, Opera, Vivaldi and Chromium. The extension isn’t signed by Mozilla, so regular Firefox keeps it until restart; Developer Edition, Nightly and ESR can keep it permanently. <a href="#guide-extension">How to install it</a>.</p></div></details>
+      <details class="acc"><summary>Is Prism an alternative to IDM (Internet Download Manager)?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>For the workflows people use IDM for — yes: dynamic multi-connection downloads, a browser “download this” window, video grabbing, categories, queues with schedules, a site grabber, a speed limiter and batch downloads. Prism is free, open source and runs on Windows, macOS and Linux. It’s a clean-room implementation and isn’t affiliated with Internet Download Manager, and we haven’t benchmarked IDM yet (see <a href="#benchmarks">Benchmarks</a>). More in <a href="/idm-alternative/">Prism as an IDM alternative</a>.</p></div></details>
+      <details class="acc"><summary>Does Prism make downloads faster?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Often, yes. Many servers and mirrors limit the speed of each connection. Prism works as a download accelerator: it splits a file across several connections (8 by default, up to 32), so in our test a 1 GiB file from such a server finished 15× faster than over a single connection.</p><p>When a server doesn’t limit connections, a good downloader simply fills your line, and nothing beats the line itself: on a real ≈ 200 Mbit/s connection Prism, aria2c and curl all finished at the same speed. The <a href="#benchmarks">benchmarks</a> show both cases.</p></div></details>
+      <details class="acc"><summary>Can it resume broken or interrupted downloads?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. Pause, close the laptop, lose the connection or the power: Prism writes data to disk before it saves its progress, so it continues from the last byte it safely wrote. On resume it checks the file’s size, ETag and Last-Modified with the server, so a file that changed in the meantime is never stitched together from two versions. The Download window shows whether a server supports resuming before you start.</p></div></details>
+      <details class="acc"><summary>Which sites can it download videos from?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Every site yt-dlp supports — more than a thousand, including YouTube, Vimeo, Twitch, X, Instagram, TikTok, Reddit and SoundCloud. Pick MP4 in the quality you want (up to 8K HDR) or just the MP3, with subtitles, chapters and SponsorBlock. Prism installs yt-dlp, ffmpeg and deno for you, verifies them by SHA-256 and keeps yt-dlp updated. Only download content you have the right to.</p></div></details>
+      <details class="acc"><summary>Does Prism download torrents and magnet links?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. Prism opens <code>magnet:</code> links and <code>.torrent</code> files in its own torrent window: pick the files you want, the folder, the category and the queue, and see the free space before you start. A torrent with several files gets a folder of its own.</p></div></details>
+      <details class="acc"><summary>Can it download AI models from Hugging Face?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes, since 1.1.7. Click the model button in the toolbar, or paste a model’s name like <code>Qwen/Qwen3-8B</code> or its link into <em>Add URL</em>. Prism picks the files you need — for GGUF models one quantization, Q4_K_M unless you choose another — downloads them over many connections and checks each against its SHA-256. Gated and private models work with an access token. <a href="/hugging-face/">How it works</a>.</p></div></details>
+      <details class="acc"><summary>Which browsers does the extension work with?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Chrome, Edge, Brave, Opera, Vivaldi and Helium add it from the Chrome Web Store in one click, and the store keeps it up to date. Firefox and Zen use <code>prism-firefox.zip</code>: Prism isn’t in Firefox Add-ons yet, so regular Firefox keeps it until restart, while Developer Edition, Nightly and ESR can keep it permanently. <a href="#guide-extension">How to install it</a> · <a href="/browser-extension/">more about the extension</a>.</p></div></details>
+      <details class="acc"><summary>Which systems and languages does Prism support?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Windows 10 and 11 (64-bit), macOS 11 Big Sur or later on Apple Silicon and Intel, and 64-bit Linux as a deb, rpm or AppImage. The app speaks English, Czech, German, Spanish, French, Italian, Indonesian, Turkish and Arabic, and follows your system’s language.</p></div></details>
       <details class="acc"><summary>Is there a Flatpak? What about Snap browsers?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>Prism ships as deb, rpm and AppImage. There’s no Flatpak yet: browser integration relies on a native helper, which a sandboxed app can’t register without extra work. Flatpak <em>browsers</em> can’t start native helpers at all, so for full integration use a browser from a deb/rpm package; Snap Firefox works after a one-time permission prompt.</p></div></details>
       <details class="acc"><summary>Why does macOS say the app can’t be opened?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>The macOS build isn’t notarized by Apple yet, so macOS blocks it the first time (it may also close it after a few seconds). Allow it once with <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>, or clear the quarantine flag in Terminal. Updates installed from inside Prism don’t need this again.</p>
           <div class="code"><pre>xattr -dr com.apple.quarantine /Applications/Prism.app</pre><button class="copy-btn" type="button" aria-label="Copy command"><svg class="i i-copy" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-check" aria-hidden="true"><use href="#i-check"/></svg></button></div></div></details>
-      <details class="acc"><summary>Which sites can it download videos from?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Every site yt-dlp supports — more than a thousand, including YouTube, Vimeo, Twitch, X, Instagram, TikTok, Reddit and SoundCloud. Prism installs yt-dlp, ffmpeg and deno for you, verifies them by SHA-256 and keeps yt-dlp updated. Only download content you have the right to.</p></div></details>
       <details class="acc"><summary>How can I help?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>Star the repo and tell a friend — it genuinely helps. Bug reports, translations, docs and pull requests are all welcome; start with <a href="https://github.com/FortoGraphy/prism-download-manager/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>. Have a licensed IDM? Running the benchmark harness and sharing the numbers would be great.</p></div></details>
     </div>
@@ -1122,6 +1348,17 @@ sha256sum -c SHA256SUMS.txt --ignore-missing</pre><button class="copy-btn" type=
         </ul>
       </div>
       <div>
+        <h3>Prism for</h3>
+        <ul>
+          <li><a href="/windows/">Windows</a></li>
+          <li><a href="/mac/">macOS</a></li>
+          <li><a href="/linux/">Linux</a></li>
+          <li><a href="/browser-extension/">Browser extension</a></li>
+          <li><a href="/idm-alternative/">IDM alternative</a></li>
+          <li><a href="/hugging-face/">Hugging Face models</a></li>
+        </ul>
+      </div>
+      <div>
         <h3>Legal</h3>
         <ul>
           <li><a href="https://github.com/FortoGraphy/prism-download-manager/blob/main/LICENSE">MIT License</a></li>
@@ -1132,8 +1369,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing</pre><button class="copy-btn" type=
     </div>
     <div class="footer-bottom">
       <span>© 2026 Jan Sechovec and Prism contributors · MIT License</span>
-      <span>Prism is not affiliated with Internet Download Manager or Tonec Inc. Browser names are trademarks of their owners.</span>
-    </div>
+      <span>Prism is not affiliated with Internet Download Manager or Tonec Inc. Browser names are trademarks of their owners.</span>    </div>
   </div>
 </footer>
 

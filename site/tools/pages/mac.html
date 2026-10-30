@@ -1,0 +1,127 @@
+<!--
+title: Prism — Free, Open-Source Download Manager for Mac
+description: Prism is a free, open-source download manager for macOS 11 and later, on Apple Silicon and Intel Macs: up to 32 connections per file, crash-safe resume, browser capture, video and Hugging Face model downloads.
+og_title: Prism — the free download manager for Mac
+crumb: macOS
+-->
+<section class="lp-hero" aria-labelledby="lp-title">
+  <div class="hero-bg" aria-hidden="true"></div>
+  <div class="container">
+    <div class="hero-copy">
+      <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Prism</a></li><li aria-current="page">macOS</li></ol></nav>
+      <p class="eyebrow">Prism for Mac</p>
+      <h1 class="lp-title" id="lp-title">A free, open-source download manager for Mac</h1>
+      <p class="lede">Native builds for Apple Silicon and Intel Macs on macOS 11 Big Sur or later. Prism splits each download across up to 32 connections, takes over downloads from Chrome, Edge, Brave, Firefox and other browsers, and resumes after sleep, a crash or a dropped Wi-Fi.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-xl" href="https://github.com/FortoGraphy/prism-download-manager/releases/download/v{{version}}/Prism_{{version}}_aarch64.dmg" data-asset="mac-arm">
+          <svg class="i" aria-hidden="true"><use href="#i-download"/></svg> Download for Apple Silicon
+        </a>
+        <a class="btn btn-glass btn-xl" href="https://github.com/FortoGraphy/prism-download-manager/releases/download/v{{version}}/Prism_{{version}}_x64.dmg" data-asset="mac-x64">Intel Mac</a>
+      </div>
+      <p class="cta-meta">macOS 11 or later · Apple menu → About This Mac → <em>Chip</em> tells you which one you have</p>
+    </div>
+    <div class="shot shot-main lp-shot">
+      <picture class="tv-dark">
+        <source type="image/avif" srcset="/assets/img/main-dark-1600.avif 1600w, /assets/img/main-dark-960.avif 960w, /assets/img/main-dark-640.avif 640w" sizes="(min-width: 1300px) 1216px, 94vw">
+        <img src="/assets/img/main-dark-1600.webp" srcset="/assets/img/main-dark-1600.webp 1600w, /assets/img/main-dark-960.webp 960w, /assets/img/main-dark-640.webp 640w" sizes="(min-width: 1300px) 1216px, 94vw" width="2400" height="1500" alt="Prism's main window: downloads with live progress and speeds, and a connections pane with 16 parallel segments for one file." fetchpriority="high" decoding="async">
+      </picture>
+      <picture class="tv-light">
+        <source type="image/avif" srcset="/assets/img/main-light-1600.avif 1600w, /assets/img/main-light-960.avif 960w, /assets/img/main-light-640.avif 640w" sizes="(min-width: 1300px) 1216px, 94vw">
+        <img src="/assets/img/main-light-1600.webp" srcset="/assets/img/main-light-1600.webp 1600w, /assets/img/main-light-960.webp 960w, /assets/img/main-light-640.webp 640w" sizes="(min-width: 1300px) 1216px, 94vw" width="2400" height="1500" alt="Prism's main window in the light theme." loading="lazy" decoding="async">
+      </picture>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="eyebrow">On the Mac</p>
+      <h2 class="h2" id="features-title">A download manager that feels at home on macOS.</h2>
+      <p class="lede">The same engine, browser capture, video and torrent support as everywhere else, in a light or dark liquid-glass window.</p>
+    </div>
+    <div class="bento">
+      <article class="tile span-2 reveal">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-bolt"/></svg></div>
+        <h3 class="h3">Apple Silicon and Intel</h3>
+        <p>A native build for each: <code>aarch64</code> for M-series Macs, <code>x64</code> for Intel. Written in Rust, light on memory.</p>
+      </article>
+      <article class="tile span-2 reveal d1">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-clock"/></svg></div>
+        <h3 class="h3">Your Mac stays awake</h3>
+        <p>While downloads run, Prism keeps the Mac from going to sleep (the display may still sleep), and lets go as soon as they finish.</p>
+      </article>
+      <article class="tile span-2 reveal d2">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-puzzle"/></svg></div>
+        <h3 class="h3">Chrome, Edge, Brave, Firefox</h3>
+        <p>Add the extension from the Chrome Web Store, or use the <em>Browser Extension</em> folder inside the DMG. Firefox and Zen load it from a zip.</p>
+      </article>
+      <article class="tile span-2 reveal">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-video"/></svg></div>
+        <h3 class="h3">Video and music</h3>
+        <p>MP4 in the quality you want or just the MP3, from every site yt-dlp supports. Prism fetches a verified ffmpeg for you, or uses Homebrew’s.</p>
+      </article>
+      <article class="tile span-2 reveal d1">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-archive"/></svg></div>
+        <h3 class="h3">AI models for LM Studio</h3>
+        <p>Download Hugging Face models — GGUF or safetensors — and save them straight into LM Studio’s models folder. <a href="/hugging-face/">How it works</a>.</p>
+      </article>
+      <article class="tile span-2 reveal d2">
+        <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-shield"/></svg></div>
+        <h3 class="h3">Private by design</h3>
+        <p>No telemetry, no ads, no account. The extension talks only to the Prism app on your own Mac.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="download" aria-labelledby="download-title" style="padding-top:0">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="eyebrow">Download</p>
+      <h2 class="h2" id="download-title">Install in two minutes.</h2>
+      <p class="lede">Prism isn’t notarized by Apple yet (that needs a paid developer account), so macOS asks you to allow it once.</p>
+    </div>
+    <div class="lp-split">
+{{dl:mac}}
+      <div class="panel reveal d1">
+        <h3 class="h3">Step by step</h3>
+        <ol class="steps">
+          <li><div><h4>Open the <code>.dmg</code> and drag Prism into Applications</h4><p>Apple Silicon: <code>Prism_&lt;version&gt;_aarch64.dmg</code>. Intel: <code>Prism_&lt;version&gt;_x64.dmg</code>.</p></div></li>
+          <li><div><h4>Allow Prism once</h4><p>macOS may refuse to open it, call it “damaged”, or close it after a few seconds. Clear the quarantine flag in Terminal, or use <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>:</p>
+            <div class="code"><pre>xattr -dr com.apple.quarantine /Applications/Prism.app</pre><button class="copy-btn" type="button" aria-label="Copy command"><svg class="i i-copy" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-check" aria-hidden="true"><use href="#i-check"/></svg></button></div></div></li>
+          <li><div><h4>Add the browser extension</h4><p>From the <a href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl" rel="noopener">Chrome Web Store</a> in Chrome, Edge, Brave, Opera or Vivaldi. Prism walks you through it on first start.</p></div></li>
+          <li><div><h4>Optional: ffmpeg for video</h4><p>Prism can fetch a verified build (Settings → Video &amp; streams → Check tools), or install it with Homebrew:</p>
+            <div class="code"><pre>brew install ffmpeg</pre><button class="copy-btn" type="button" aria-label="Copy command"><svg class="i i-copy" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-check" aria-hidden="true"><use href="#i-check"/></svg></button></div></div></li>
+        </ol>
+        <p class="note panel-note"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>The macOS builds are made and tested on GitHub’s Mac machines. Something off on your Mac? <a href="https://github.com/FortoGraphy/prism-download-manager/issues">Open an issue</a> — reports from real Macs help a lot.</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="faq" aria-labelledby="faq-title" style="padding-top:0">
+  <div class="container faq-wrap">
+    <div class="section-head reveal">
+      <p class="eyebrow">FAQ</p>
+      <h2 class="h2" id="faq-title">Prism on the Mac, answered.</h2>
+      <p class="lede">Something else? <a href="https://github.com/FortoGraphy/prism-download-manager/discussions">Ask in Discussions</a>.</p>
+    </div>
+    <div class="accordion reveal d1" data-faq>
+      <details class="acc" open><summary>Does Prism run natively on Apple Silicon?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. The <code>aarch64</code> DMG is built for M-series Macs, and the <code>x64</code> DMG for Intel Macs. Both need macOS 11 Big Sur or later.</p></div></details>
+      <details class="acc"><summary>Why does macOS say Prism can’t be opened or is damaged?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Prism isn’t notarized by Apple yet, so Gatekeeper blocks it the first time. Allow it once with <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>, or run <code>xattr -dr com.apple.quarantine /Applications/Prism.app</code> in Terminal. Updates installed from inside Prism don’t need this again.</p></div></details>
+      <details class="acc"><summary>Does Prism work with Safari?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>No. The extension is made for Chromium browsers (Chrome, Edge, Brave, Opera, Vivaldi, Helium) and for Firefox and Zen. You can still paste links into Prism from any browser, or let its clipboard monitor pick them up.</p></div></details>
+      <details class="acc"><summary>Can Prism download videos on a Mac?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes, from every site yt-dlp supports, as MP4 up to 8K HDR or as MP3. Prism installs and updates yt-dlp itself and can fetch a verified ffmpeg. Only download content you have the right to.</p></div></details>
+      <details class="acc"><summary>Is Prism free?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
+        <div class="acc-body"><p>Yes. Prism is a free, open-source download manager under the MIT license: no trial, no paid tier, no ads and no account.</p></div></details>
+    </div>
+  </div>
+</section>
+
+{{related}}
+
+{{cta}}
