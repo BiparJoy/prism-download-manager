@@ -465,6 +465,16 @@ impl NetworkSet {
         Some(NetworkLease { network: pick })
     }
 
+    /// Every network switched on is gone while one switched off is connected: the default
+    /// route may well be the one the user excluded, so new connections wait instead.
+    pub fn default_route_excluded(&self) -> bool {
+        let g = self.networks.read().expect("networks lock");
+        let here = |n: &&Arc<Network>| n.local_addr().is_some();
+        g.iter().any(|n| n.is_enabled())
+            && !g.iter().filter(here).any(|n| n.is_enabled())
+            && g.iter().filter(here).any(|n| !n.is_enabled())
+    }
+
     /// Whether a network other than `current` could take a new connection to `server`.
     pub(crate) fn has_other_for(&self, server: &str, current: &Arc<Network>) -> bool {
         let now = Instant::now();
@@ -613,6 +623,25 @@ mod tests {
         // Nobody left to try: the caller reports the refusal instead of switching again.
         assert!(!set.has_other_for(S, &b));
         assert!(set.lease("other.example:443").is_some());
+    }
+
+    #[test]
+    fn the_default_route_is_refused_only_when_it_may_be_an_excluded_network() {
+        let set = set_with(&["wired", "tether"]);
+        let gone = |name: &str| *set.get(name).unwrap().local_addr.write().unwrap() = None;
+        assert!(!set.default_route_excluded());
+        // Wired switched off, the tether unplugged: the default route is likely wired.
+        set.set_enabled("wired", false);
+        gone("tether");
+        assert!(set.default_route_excluded());
+        assert!(set.lease(S).is_none());
+        // Nothing switched off is connected either: the default route is something else.
+        gone("wired");
+        assert!(!set.default_route_excluded());
+        // Everything switched off: the user turned the choice off, the default route is fine.
+        let all_off = set_with(&["a"]);
+        all_off.set_enabled("a", false);
+        assert!(!all_off.default_route_excluded());
     }
 
     #[test]

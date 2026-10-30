@@ -102,6 +102,34 @@ async fn disabled_networks_fall_back_to_the_default_route() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_switched_off_network_is_not_used_when_the_chosen_ones_are_gone() {
+    let srv = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let size = 4 * MIB;
+    let e = engine();
+    // "lo" switched off but connected; the only network switched on is unplugged.
+    e.networks()
+        .configure(&[net("lo", false, 0), net("prism-missing0", true, 0)]);
+    let h = e.start(
+        request(
+            &srv.url(&format!("/file/x.bin?size={size}&seed=34")),
+            dir.path(),
+            4,
+        ),
+        None,
+        vec![],
+    );
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(h.snapshot().downloaded, 0, "nothing over the default route");
+    // A chosen network appears: the download goes ahead over it.
+    e.networks()
+        .configure(&[net("lo", true, 0), net("prism-missing0", true, 0)]);
+    let done = wait(&h, 60).await.unwrap();
+    assert_eq!(sha256_file(&done.path), expected_sha256(34, size));
+    assert!(e.networks().get("lo").unwrap().received() >= size);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_network_that_cannot_reach_the_server_is_benched() {
     // Any real adapter cannot reach 127.0.0.1 when the socket is pinned to it.
     let Some(other) = list_interfaces().into_iter().next() else {

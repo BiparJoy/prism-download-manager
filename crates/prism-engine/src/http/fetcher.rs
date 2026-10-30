@@ -230,6 +230,9 @@ impl HttpFetcher {
     ) -> Result<reqwest::Response, FetchError> {
         let server = server_of(url);
         self.move_off_unusable_network(&server);
+        if self.lease.is_none() && !proxy_is_local(&self.ctx.spec.proxy) {
+            self.pick_up_network(&server)?;
+        }
         let r = self.send_inner(url, range, if_range).await;
         if let Some(l) = &self.lease {
             match &r {
@@ -260,6 +263,21 @@ impl HttpFetcher {
         self.client = build_client_on(&self.ctx.spec, next.as_ref().map(|l| &**l.network()));
         self.lease = next;
         self.ntlm_ready = false;
+    }
+
+    /// Without a network (none was usable when this connection started): takes one that came
+    /// back, or waits while the default route may be a network the user switched off.
+    fn pick_up_network(&mut self, server: &str) -> Result<(), FetchError> {
+        if let Some(next) = self.ctx.networks.lease(server) {
+            self.client = build_client_on(&self.ctx.spec, Some(&**next.network()));
+            self.lease = Some(next);
+            self.ntlm_ready = false;
+        } else if self.ctx.networks.default_route_excluded() {
+            return Err(FetchError::transient(EngineError::network(
+                "none of the networks switched on is connected",
+            )));
+        }
+        Ok(())
     }
 
     async fn send_inner(
