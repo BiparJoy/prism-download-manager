@@ -696,12 +696,25 @@ impl Core {
         streams: Vec<SniffedStream>,
         preselected: Option<String>,
     ) -> VideoCapture {
+        self.open_video_with(page_url, title, streams, preselected, None)
+    }
+
+    /// [`Self::open_video`] for a request from a browser tab, with its session.
+    fn open_video_with(
+        &self,
+        page_url: String,
+        title: Option<String>,
+        streams: Vec<SniffedStream>,
+        preselected: Option<String>,
+        browser: Option<BrowserSession>,
+    ) -> VideoCapture {
         let v = VideoCapture {
             id: new_id(),
             page_url,
             title,
             streams,
             preselected,
+            browser,
         };
         self.0.state.lock().videos.insert(v.id.clone(), v.clone());
         self.emit(CoreEvent::VideoRequested(v.clone()));
@@ -714,6 +727,30 @@ impl Core {
 
     pub fn cancel_video(&self, id: &str) {
         self.0.state.lock().videos.remove(id);
+    }
+
+    /// Formats of a video page for the Download video window: with the browser tab's session
+    /// when the window was opened from it (age-restricted and members' videos), otherwise none
+    /// (yt-dlp still reads the "Cookies from browser" setting itself).
+    pub async fn probe_video_for_window(&self, page_url: &str) -> Result<serde_json::Value> {
+        let browser = self
+            .0
+            .state
+            .lock()
+            .videos
+            .values()
+            .find(|v| v.page_url == page_url && v.browser.is_some())
+            .and_then(|v| v.browser.clone());
+        let ctx = match browser {
+            Some(b) => prism_video::RequestContext {
+                cookies: b.cookies,
+                user_agent: b.user_agent,
+                referer: Some(page_url.to_string()),
+                ..Default::default()
+            },
+            None => Default::default(),
+        };
+        self.probe_video(page_url, ctx).await
     }
 
     /// Resolve formats of a video page (yt-dlp).
@@ -784,9 +821,23 @@ impl Core {
     /// (used for playlist/batch entries, where showing one dialog per entry would be
     /// impractical). The single-video "video" IPC handler goes through `capture()` instead,
     /// so the user can still rename/relocate before it starts.
-    pub fn confirm_video(&self, d: VideoDecision) -> Result<Vec<DownloadItem>> {
-        if !d.capture_id.is_empty() {
-            self.0.state.lock().videos.remove(&d.capture_id);
+    pub fn confirm_video(&self, mut d: VideoDecision) -> Result<Vec<DownloadItem>> {
+        let pending = if d.capture_id.is_empty() {
+            None
+        } else {
+            self.0.state.lock().videos.remove(&d.capture_id)
+        };
+        // Opened from the in-page button: download with that tab's session.
+        if d.context.is_none()
+            && let Some(VideoCapture {
+                page_url,
+                browser: Some(b),
+                ..
+            }) = pending
+        {
+            d.context = Some(serde_json::json!({
+                "cookies": b.cookies, "userAgent": b.user_agent, "referer": page_url,
+            }));
         }
         let settings = self.settings();
         let playlist = !d.entries.is_empty();
@@ -1406,6 +1457,23 @@ impl Core {
                     let duration = info.get("duration").and_then(|v| v.as_f64());
                     let context = serde_json::json!({"cookies": s("cookies"), "userAgent": s("userAgent"), "referer": page_url});
                     let settings = self.settings();
+                    // With the confirmation on: the Download video window with this quality
+                    // picked — "Only a part", the folder and the other options are there, and
+                    // the qualities show at once (the menu's probe is kept). It brings the tab's
+                    // session along for its probe and the download.
+                    if settings.general.show_capture_dialog {
+                        let v = self.open_video_with(
+                            page_url,
+                            title,
+                            Vec::new(),
+                            Some(format_id),
+                            Some(BrowserSession {
+                                cookies: s("cookies"),
+                                user_agent: s("userAgent"),
+                            }),
+                        );
+                        return serde_json::json!({"ok": true, "accepted": true, "downloadId": v.id});
+                    }
                     let n = self.video_item(
                         &settings,
                         page_url.clone(),
@@ -1416,24 +1484,17 @@ impl Core {
                         thumbnail,
                         duration,
                     );
-                    // Same "Download File" dialog (file name / save location / category) every
-                    // other capture goes through, same `showCaptureDialog` setting — matches
-                    // IDM's "Download File Info" confirmation instead of starting right away.
-                    return if settings.general.show_capture_dialog {
-                        let info = self.capture(n, CaptureSource::Browser);
-                        serde_json::json!({"ok": true, "accepted": true, "downloadId": info.id})
+                    // The confirmation is off: it starts right away.
+                    let mode = if settings.downloads.auto_start {
+                        StartMode::Now
                     } else {
-                        let mode = if settings.downloads.auto_start {
-                            StartMode::Now
-                        } else {
-                            StartMode::Later
-                        };
-                        match self.add_items(vec![n], mode) {
-                            Ok(items) => {
-                                serde_json::json!({"ok": true, "accepted": true, "downloadId": items.first().map(|i| i.id.clone())})
-                            }
-                            Err(e) => fail("app_error", e.to_string()),
+                        StartMode::Later
+                    };
+                    return match self.add_items(vec![n], mode) {
+                        Ok(items) => {
+                            serde_json::json!({"ok": true, "accepted": true, "downloadId": items.first().map(|i| i.id.clone())})
                         }
+                        Err(e) => fail("app_error", e.to_string()),
                     };
                 }
                 // One sniffed stream (HLS/DASH/direct) chosen in the page menu or popup.
@@ -1512,7 +1573,16 @@ impl Core {
                         }
                     };
                 }
-                self.open_video(page_url, s("title"), Vec::new(), None);
+                self.open_video_with(
+                    page_url,
+                    s("title"),
+                    Vec::new(),
+                    None,
+                    Some(BrowserSession {
+                        cookies: s("cookies"),
+                        user_agent: s("userAgent"),
+                    }),
+                );
                 serde_json::json!({"ok": true, "accepted": true})
             }
             _ => fail("bad_request", format!("unknown message type '{ty}'")),

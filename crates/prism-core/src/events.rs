@@ -77,6 +77,18 @@ pub struct VideoCapture {
     pub streams: Vec<SniffedStream>,
     /// Pre-selected choice from the in-page button menu.
     pub preselected: Option<String>,
+    /// The browser's session for the page (cookies, user agent) when the request came from the
+    /// in-page button: the window's probe and the download use it (age-restricted and members'
+    /// videos). Stays in the core.
+    #[serde(skip)]
+    pub browser: Option<BrowserSession>,
+}
+
+/// Cookies and user agent of the browser tab a video request came from.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BrowserSession {
+    pub cookies: Option<String>,
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

@@ -28,7 +28,7 @@ const CHANGES: Change[] = [
   {
     icon: "video",
     title: tk("Just a part of a video"),
-    body: tk("In the “Download video” window, choose “Only a part” and pick where it starts and ends, or a chapter. Prism downloads only that part."),
+    body: tk("Pick a quality with the Download button next to a video, or open the “Download video” window in Prism, and choose “Only a part”: where it starts and ends, or a chapter. Prism downloads only that part."),
   },
   {
     icon: "file-archive",

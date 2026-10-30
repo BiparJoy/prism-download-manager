@@ -87,7 +87,10 @@ export default function VideoWindow({ id }: { id: string }) {
         if (p.kind === "video") {
           const pref = settings?.video.preferredHeight ?? 1080;
           const pick = p.choices.find((x) => x.kind === "video" && (x.height ?? 0) <= pref) ?? p.choices[0];
-          setChoice((c.preselected && p.choices.some((x) => x.id === c.preselected) ? c.preselected : pick?.id) ?? "");
+          // A quality picked in the browser's menu comes picked here; "Audio only" opens on MP3.
+          const pre = c.preselected ? p.choices.find((x) => x.id === c.preselected) : undefined;
+          if (pre?.kind === "audio") setFormat("mp3");
+          setChoice((pre && pre.kind !== "audio" ? pre.id : pick?.id) ?? "");
         } else {
           setChoice("v1080");
           setEntries(new Set(p.entries.map((e) => e.url)));

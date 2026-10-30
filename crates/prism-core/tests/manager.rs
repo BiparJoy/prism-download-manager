@@ -4,7 +4,7 @@
 
 use prism_core::events::{CaptureSource, CoreEvent};
 use prism_core::ipc::IpcHandler;
-use prism_core::manager::{CaptureDecision, Core, CoreOptions, NewItem, StartMode};
+use prism_core::manager::{CaptureDecision, Core, CoreOptions, NewItem, StartMode, VideoDecision};
 use prism_core::model::{DownloadItem, ItemKind, Queue, Status};
 use prism_core::settings::ConflictAction;
 use prism_testserver::{HlsFixture, ServerConfig, TestServer, expected_sha256, sha256_hex};
@@ -377,13 +377,72 @@ async fn video_quality_pick_opens_a_capture_dialog_instead_of_starting() {
     assert!(core.confirm_capture(decision).is_ok());
 }
 
-/// A format picked in the video menu of a site Prism reads (YouTube and the like) also goes through
-/// the "Download File" dialog, and stays a video job (the page, the chosen format, the cookies).
+/// A format picked in the video menu of a site Prism reads (YouTube and the like) opens the
+/// Download video window with that quality picked ("Only a part", the folder, the options are
+/// there), not the plain file dialog; the download keeps the tab's session (cookies, user agent).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_picked_video_format_opens_the_dialog_and_stays_a_video_job() {
+async fn a_picked_video_format_opens_the_video_window_with_it_picked() {
     let tmp = tempfile::tempdir().unwrap();
     let core = core_in(tmp.path()).await;
     core.update_settings(&serde_json::json!({"general": {"showCaptureDialog": true}}))
+        .unwrap();
+    let mut rx = core.subscribe();
+    let page = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+    let reply = core
+        .handle(serde_json::json!({
+            "id": "1", "type": "video", "pageUrl": page, "title": "Me at the zoo",
+            "formatId": "v720", "formatLabel": "720p", "streams": [],
+            "cookies": "PREF=1", "userAgent": "test UA",
+        }))
+        .await;
+    assert_eq!(reply["accepted"], true, "{reply}");
+    let v = wait_event(&mut rx, 5, |ev| match ev {
+        CoreEvent::VideoRequested(v) => Some(v.clone()),
+        CoreEvent::CaptureRequested(_) => panic!("the plain file dialog opened"),
+        _ => None,
+    })
+    .await;
+    assert_eq!(v.page_url, page);
+    assert_eq!(v.title.as_deref(), Some("Me at the zoo"));
+    assert_eq!(v.preselected.as_deref(), Some("v720"));
+    assert_eq!(reply["downloadId"], v.id.as_str());
+    assert!(
+        core.bootstrap().items.is_empty(),
+        "nothing starts before the window"
+    );
+    // The session stays in the core: the window's copy has none.
+    let shown = serde_json::to_value(core.pending_video(&v.id).unwrap()).unwrap();
+    assert!(shown.get("browser").is_none(), "{shown}");
+    // Confirmed in the window (which sends no context): the tab's cookies come along.
+    let decision: VideoDecision = serde_json::from_value(serde_json::json!({
+        "captureId": v.id, "pageUrl": page, "title": "Me at the zoo",
+        "choice": {"id": "v720", "kind": "video", "label": "720p", "subLabel": "", "container": "mp4", "height": 720},
+        "options": {"container": "mp4"},
+        "mode": {"type": "later"},
+    }))
+    .unwrap();
+    let items = core.confirm_video(decision).unwrap();
+    assert_eq!(items.len(), 1);
+    let item = &items[0];
+    assert_eq!(item.kind, ItemKind::Video);
+    let request = item.request.clone().unwrap();
+    assert_eq!(request["pageUrl"], page);
+    assert_eq!(request["choice"]["id"], "v720");
+    assert_eq!(request["context"]["cookies"], "PREF=1");
+    assert_eq!(request["context"]["userAgent"], "test UA");
+    assert!(
+        core.pending_video(&v.id).is_none(),
+        "the request is used up"
+    );
+}
+
+/// With "Show the Download File dialog" off, a format picked in the video menu starts right away,
+/// as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_picked_video_format_starts_right_away_without_the_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    core.update_settings(&serde_json::json!({"general": {"showCaptureDialog": false}, "downloads": {"autoStart": false}}))
         .unwrap();
     let mut rx = core.subscribe();
     let page = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
@@ -395,36 +454,23 @@ async fn a_picked_video_format_opens_the_dialog_and_stays_a_video_job() {
         }))
         .await;
     assert_eq!(reply["accepted"], true, "{reply}");
-    let info = wait_event(&mut rx, 5, |ev| match ev {
-        CoreEvent::CaptureRequested(info) => Some(info.clone()),
-        _ => None,
-    })
-    .await;
-    assert_eq!(info.kind, ItemKind::Video);
-    assert!(!info.probing, "a video page is not probed as a file");
-    assert!(
-        info.file_name.starts_with("Me at the zoo"),
-        "{}",
-        info.file_name
+    let items = core.bootstrap().items;
+    assert_eq!(items.len(), 1, "added at once");
+    assert_eq!(items[0].kind, ItemKind::Video);
+    assert_eq!(
+        items[0].request.as_ref().unwrap()["context"]["cookies"],
+        "PREF=1"
     );
-    assert!(
-        core.item(&info.id).is_none(),
-        "nothing starts before the dialog"
-    );
-    let item = core
-        .confirm_capture(CaptureDecision {
-            id: info.id,
-            file_name: Some("Zoo.mp4".into()),
-            mode: StartMode::Later,
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(item.kind, ItemKind::Video);
-    assert_eq!(item.file_name, "Zoo.mp4");
-    let request = item.request.unwrap();
-    assert_eq!(request["pageUrl"], page);
-    assert_eq!(request["choice"]["id"], "best");
-    assert_eq!(request["context"]["cookies"], "PREF=1");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    while let Ok(ev) = rx.try_recv() {
+        assert!(
+            !matches!(
+                ev,
+                CoreEvent::VideoRequested(_) | CoreEvent::CaptureRequested(_)
+            ),
+            "no window: {ev:?}"
+        );
+    }
 }
 
 /// A sniffed HLS stream's qualities are listed for the page menu, and the one picked there is the

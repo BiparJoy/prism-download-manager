@@ -1,7 +1,16 @@
-# Prism 1.2.0 — One beam. Many rays.
+# Prism 1.2.1 — One beam. Many rays.
 
 A fast, open-source download manager for Windows, Linux and macOS, with browser integration
 and video downloads.
+
+## What's new in 1.2.1
+
+* **The Download button next to a video opens the Download video window.** A quality picked in
+  the browser's menu (or with right-click › Download with Prism on a video) now opens Prism's
+  *Download video* window with that quality picked, so *Only a part*, the folder and the other
+  options are there too. Before, it went to the plain *Download file* window. The window uses the
+  browser tab's session, so age-restricted and members' videos work as before. With *Show the
+  Download File dialog* off, the download still starts right away.
 
 ## What's new in 1.2.0
 
