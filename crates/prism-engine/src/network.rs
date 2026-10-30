@@ -273,6 +273,21 @@ impl Network {
             r.benched_until = Some(now + BENCH_FOR);
         }
     }
+
+    /// `server` refused a request over this network (a link signed for another address):
+    /// no new connections to it over this network for a while.
+    pub(crate) fn on_refused(&self, server: &str) {
+        let now = Instant::now();
+        tracing::info!(network = %self.interface, server, "refused by the server, benched");
+        self.reach.lock().expect("network lock").insert(
+            server.to_string(),
+            Reach {
+                failures: BENCH_AFTER_FAILURES,
+                last_failure: now,
+                benched_until: Some(now + BENCH_FOR),
+            },
+        );
+    }
 }
 
 /// A connection's claim on a network; releases the connection count when dropped.
@@ -449,6 +464,21 @@ impl NetworkSet {
         pick.connections.fetch_add(1, Ordering::AcqRel);
         Some(NetworkLease { network: pick })
     }
+
+    /// Whether a network other than `current` could take a new connection to `server`.
+    pub(crate) fn has_other_for(&self, server: &str, current: &Arc<Network>) -> bool {
+        let now = Instant::now();
+        self.networks
+            .read()
+            .expect("networks lock")
+            .iter()
+            .any(|n| {
+                !Arc::ptr_eq(n, current)
+                    && n.is_enabled()
+                    && n.local_addr().is_some()
+                    && !n.is_benched_for(server, now)
+            })
+    }
 }
 
 /// DNS resolver that keeps only addresses of the families a network can reach: an adapter
@@ -567,6 +597,22 @@ mod tests {
         // With "b" holding more connections now, the recovered "a" is picked again.
         let _b = set.lease(S).unwrap();
         assert_eq!(set.lease(S).unwrap().network().interface(), "a");
+    }
+
+    #[test]
+    fn a_refusing_network_is_avoided_while_another_reaches_the_server() {
+        let set = set_with(&["a", "b"]);
+        let a = set.get("a").unwrap();
+        assert!(set.has_other_for(S, &a));
+        a.on_refused(S);
+        for _ in 0..3 {
+            assert_eq!(set.lease(S).unwrap().network().interface(), "b");
+        }
+        let b = set.get("b").unwrap();
+        b.on_refused(S);
+        // Nobody left to try: the caller reports the refusal instead of switching again.
+        assert!(!set.has_other_for(S, &b));
+        assert!(set.lease("other.example:443").is_some());
     }
 
     #[test]

@@ -555,6 +555,17 @@ impl HttpFetcher {
                         self.ctx.sources.bench(src);
                         continue;
                     }
+                    // Signed links are often tied to the address that asked for them, and
+                    // each network has its own: try another network before calling it dead.
+                    let server = server_of(&url);
+                    if let Some(net) = self.network().cloned()
+                        && status != 404
+                        && self.ctx.networks.has_other_for(&server, &net)
+                        && switch(&mut switches)
+                    {
+                        net.on_refused(&server);
+                        continue;
+                    }
                     let probed = self.ctx.was_probed();
                     return Err(match status {
                         403 => FetchError::refused(
