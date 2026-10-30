@@ -520,6 +520,16 @@ function SpeedQueues({ s }: { s: Settings }) {
 // Colours for networks without one of their own, in list order.
 export const NETWORK_COLORS = ["#7c6cff", "#3dd68c", "#f5b544", "#4cc9f0", "#ff6b9a", "#a3e635"];
 
+/** A network's colour: the user's choice, else one from the palette by its place in the list. */
+export const networkColor = (n: NetworkView | undefined, index: number) => n?.color || NETWORK_COLORS[Math.max(0, index) % NETWORK_COLORS.length];
+
+/** How a network is doing; `idle` replaces the live numbers when it isn't in use. */
+export function networkState(n: NetworkView, idle?: string): string {
+  if (!n.present) return t("Not connected");
+  if (n.failing) return t("No internet on this network?");
+  return idle ?? `${formatSpeed(n.speed)} · ${t("{count} connections", { count: n.connections })} · ${formatBytes(n.received)}`;
+}
+
 /** Polls `load` every `ms` while mounted. */
 export function usePolled<T>(load: () => Promise<T>, ms: number): [T | null, (v: T) => void] {
   const [value, setValue] = useState<T | null>(null);
@@ -583,14 +593,8 @@ function Networks({ s }: { s: Settings }) {
         {nets === null && <Row title={t("Looking for networks…")} />}
         {nets?.length === 0 && <Row title={t("No network adapters with an address were found")} />}
         {nets?.map((n, i) => {
-          const color = n.color || NETWORK_COLORS[i % NETWORK_COLORS.length];
-          const state = !n.present
-            ? t("Not connected")
-            : n.failing
-              ? t("No internet on this network?")
-              : s.networks.enabled && n.enabled
-                ? `${formatSpeed(n.speed)} · ${t("{count} connections", { count: n.connections })} · ${formatBytes(n.received)}`
-                : n.addrs.join(", ");
+          const color = networkColor(n, i);
+          const state = networkState(n, s.networks.enabled && n.enabled ? undefined : n.addrs.join(", "));
           return (
             <div key={n.interface}>
               <Row

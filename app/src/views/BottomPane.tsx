@@ -14,7 +14,7 @@ import { useApp } from "../lib/store";
 import type { ItemDetails, SegmentInfo } from "../lib/types";
 import { useUi } from "../lib/ui";
 import { copyText } from "../lib/win";
-import { NETWORK_COLORS, usePolled } from "./sheets/SettingsSheet";
+import { networkColor, networkState, usePolled } from "./sheets/SettingsSheet";
 
 const TABS = [
   { id: "connections", label: tk("Connections") },
@@ -105,7 +105,7 @@ function NetworkLanes({ segments }: { segments: SegmentInfo[] }) {
   const view = (iface: string) => {
     const i = nets?.findIndex((n) => n.interface === iface) ?? -1;
     const n = nets?.[i];
-    return { name: n?.name || iface, color: n?.color || NETWORK_COLORS[(i < 0 ? 0 : i) % NETWORK_COLORS.length] };
+    return { name: n?.name || iface, color: networkColor(n, i) };
   };
   const active = segments.filter((s) => s.state === "active");
   const groups = new Map<string, { speed: number; count: number }>();
@@ -188,8 +188,8 @@ function NetworkTab() {
   return (
     <dl className="kv">
       {used.map((n) => {
-        const color = n.color || NETWORK_COLORS[nets.indexOf(n) % NETWORK_COLORS.length];
-        const state = !n.present ? t("Not connected") : n.failing ? t("No internet on this network?") : `${formatSpeed(n.speed)} · ${t("{count} connections", { count: n.connections })} · ${formatBytes(n.received)}`;
+        const color = networkColor(n, nets.indexOf(n));
+        const state = networkState(n);
         return (
           <div key={n.interface} className="kv__row">
             <dt>
