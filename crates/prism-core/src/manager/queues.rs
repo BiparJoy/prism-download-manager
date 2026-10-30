@@ -222,7 +222,6 @@ impl Core {
                 return;
             };
             q.running = true;
-            st.queue_was_busy.insert(id.to_string());
             st.queues
                 .iter()
                 .find(|q| q.id == id)
@@ -244,6 +243,10 @@ impl Core {
         for item in ids {
             self.with_item(&item, |i| i.status = Status::Queued);
         }
+        // Only now does the queue count as busy: the scheduler's tick could otherwise see it
+        // busy with nothing queued yet, report it finished at once and leave its downloads
+        // queued in a stopped queue.
+        self.0.state.lock().queue_was_busy.insert(id.to_string());
         self.save_queues();
         self.admit();
     }

@@ -16,6 +16,8 @@ and video downloads.
   right after the installer stops it, and showed *Error opening file for writing*. The installer
   now moves the running helper aside and puts the new one in its place; the old copy is removed
   with the next update.
+* Starting a queue could, rarely, mark it finished at once and leave its downloads waiting in a
+  stopped queue.
 
 ## What's new in 1.2.1
 
