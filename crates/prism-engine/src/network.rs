@@ -339,7 +339,7 @@ pub struct NetworkSet {
 impl NetworkSet {
     /// Replaces the configuration. Networks that stay keep their counters and limiter (with
     /// the new rate); adapters that are not present right now are kept but get no connections
-    /// until they reappear (see [`NetworkSet::refresh`]).
+    /// until they reappear (core calls this again every few seconds).
     pub fn configure(&self, specs: &[NetworkSpec]) {
         let present = interfaces(true);
         let mut g = self.networks.write().expect("networks lock");
@@ -373,14 +373,6 @@ impl NetworkSet {
         *g = next;
     }
 
-    /// Re-reads adapter addresses (after sleep, Wi-Fi changes, a phone being plugged in, …).
-    pub fn refresh(&self) {
-        let present = interfaces(true);
-        for n in self.networks.read().expect("networks lock").iter() {
-            n.set_present(present.iter().find(|i| i.name == n.interface));
-        }
-    }
-
     /// Whether more than the default route is configured (at least one enabled network).
     pub fn is_active(&self) -> bool {
         self.networks
@@ -397,13 +389,6 @@ impl NetworkSet {
         }
     }
 
-    /// Changes one network's speed limit immediately.
-    pub fn set_speed_limit(&self, interface: &str, bytes_per_sec: u64) {
-        if let Some(n) = self.get(interface) {
-            n.limiter.set_rate(bytes_per_sec);
-        }
-    }
-
     /// A configured network by adapter name.
     pub fn get(&self, interface: &str) -> Option<Arc<Network>> {
         self.networks
@@ -412,16 +397,6 @@ impl NetworkSet {
             .iter()
             .find(|n| n.interface == interface)
             .cloned()
-    }
-
-    /// Total bytes received over configured networks since the engine started.
-    pub fn received(&self) -> u64 {
-        self.networks
-            .read()
-            .expect("networks lock")
-            .iter()
-            .map(|n| n.received())
-            .sum()
     }
 
     /// Live statistics of every configured network.
@@ -731,7 +706,7 @@ mod tests {
     fn a_capped_network_stops_tail_racing() {
         let set = set_with(&["a", "b"]);
         assert!(!set.any_capped());
-        set.set_speed_limit("b", 1000);
+        set.get("b").unwrap().limiter().set_rate(1000);
         assert!(set.any_capped());
         set.set_enabled("b", false);
         assert!(
