@@ -130,11 +130,12 @@ impl DataUsage {
         }
     }
 
-    /// Starts a new period when `today` is past the current one (or the period kind changed).
-    /// Returns whether it reset.
+    /// Starts a new period when `today` is past the current one. Returns whether it reset.
+    /// Only forward: a clock set back, or a switch to a longer period that began earlier,
+    /// keeps the usage counted so far.
     pub fn roll(&mut self, period: AllowancePeriod, today: NaiveDate) -> bool {
         let start = period_start(period, today);
-        if start != self.period_start {
+        if start > self.period_start {
             *self = Self {
                 period_start: start,
                 used: 0,
@@ -188,6 +189,20 @@ mod tests {
         assert!(u.roll(AllowancePeriod::Monthly, d("2026-11-01")));
         assert_eq!(u.used, 0);
         assert_eq!(u.period_start, d("2026-11-01"));
+    }
+
+    #[test]
+    fn usage_never_rolls_backwards() {
+        let mut u = DataUsage::new(AllowancePeriod::Monthly, d("2026-11-03"));
+        u.used = 10;
+        // Clock set back into the previous month.
+        assert!(!u.roll(AllowancePeriod::Monthly, d("2026-10-30")));
+        // Weekly -> monthly mid-month: the month began before the week did.
+        let mut w = DataUsage::new(AllowancePeriod::Weekly, d("2026-10-28"));
+        w.used = 7;
+        assert!(!w.roll(AllowancePeriod::Monthly, d("2026-10-29")));
+        assert_eq!((u.used, w.used), (10, 7));
+        assert!(w.roll(AllowancePeriod::Monthly, d("2026-11-01")));
     }
 
     #[test]

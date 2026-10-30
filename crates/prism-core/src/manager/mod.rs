@@ -964,6 +964,11 @@ impl Core {
         match outcome.result {
             jobs::JobResult::Completed { path, size } => {
                 let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                // The bytes since the last progress tick; the tick won't see this job again.
+                let tail = self
+                    .item(&id)
+                    .map_or(0, |i| size.saturating_sub(i.downloaded));
+                self.account_data(tail);
                 self.with_item(&id, |i| {
                     i.status = Status::Processing;
                     if let Some(name) = file_name {
@@ -1168,6 +1173,8 @@ impl Core {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         self.checkpoint().await;
+        // The 2 s loop may not run again: keep the last usage and what the allowance holds.
+        self.save_data_usage();
         if let Some(t) = self.0.torrent.get() {
             t.shutdown().await;
         }

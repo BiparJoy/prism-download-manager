@@ -1405,6 +1405,35 @@ async fn a_hugging_face_model_downloads_into_its_queue() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_finished_download_counts_in_full_and_a_zero_limit_holds_nothing() {
+    let server = TestServer::start(ServerConfig::default()).await.unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    core.update_settings(&serde_json::json!({
+        "dataAllowance": {"enabled": true, "period": "daily", "limit": 0},
+    }))
+    .unwrap();
+    let size = 3u64 << 20;
+    let url = server.url(&format!("/file/count.bin?size={size}&seed=43"));
+    let mut rx = core.subscribe();
+    let items = core
+        .add_items(
+            vec![NewItem {
+                url,
+                ..Default::default()
+            }],
+            StartMode::Now,
+        )
+        .unwrap();
+    let path = wait_completed(&mut rx, &items[0].id).await;
+    assert_eq!(sha256_file(&path), expected_sha256(43, size));
+    let usage = core.data_usage();
+    assert!(!usage.exhausted, "a limit of 0 is no limit");
+    // Including the bytes after the last progress tick.
+    assert_eq!(usage.used, size);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn data_allowance_pauses_downloads_and_blocks_new_ones() {
     let server = TestServer::start(ServerConfig::default()).await.unwrap();
     let tmp = tempfile::tempdir().unwrap();

@@ -174,13 +174,19 @@ impl Core {
 
     pub(crate) fn save_data_usage(&self) {
         let usage = *self.0.data_usage.lock();
-        if let Ok(json) = serde_json::to_string(&usage) {
-            let _ = self.0.db.set_setting("data_usage", &json);
+        if let Ok(json) = serde_json::to_string(&usage)
+            && let Err(e) = self.0.db.set_setting("data_usage", &json)
+        {
+            tracing::warn!("could not save the data usage: {e}");
         }
         if self.0.allowance_held_dirty.swap(false, Ordering::AcqRel) {
             let held = self.0.allowance_held.lock().clone();
-            if let Ok(json) = serde_json::to_string(&held) {
-                let _ = self.0.db.set_setting("data_allowance_held", &json);
+            if let Ok(json) = serde_json::to_string(&held)
+                && let Err(e) = self.0.db.set_setting("data_allowance_held", &json)
+            {
+                // Tried again on the next save; losing it would leave held downloads stuck.
+                self.0.allowance_held_dirty.store(true, Ordering::Release);
+                tracing::warn!("could not save the downloads the allowance holds: {e}");
             }
         }
     }
@@ -216,7 +222,8 @@ impl Core {
             period: a.period,
             limit: a.limit,
             used: usage.used,
-            exhausted: a.enabled && usage.used >= a.limit,
+            // A limit of 0 means none set yet, not "nothing may download".
+            exhausted: a.enabled && a.limit > 0 && usage.used >= a.limit,
             resets_on: next_period_start(a.period, today()).to_string(),
         }
     }
