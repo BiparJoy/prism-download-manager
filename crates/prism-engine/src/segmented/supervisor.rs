@@ -16,7 +16,6 @@ use super::worker::run_worker;
 use super::{FetcherFactory, InitialStream, RangeFetcher, SegCtx, WorkerExit};
 use crate::error::EngineError;
 use crate::job::{Command, StopReason};
-use crate::limiter::any_limited;
 use crate::progress::DownloadEvent;
 
 /// Supervisor tick (speed meters, ramp-up, limit probing).
@@ -122,7 +121,7 @@ pub(crate) async fn supervise<FF: FetcherFactory>(
         if !stopping && hold_until.is_none_or(|t| Instant::now() >= t) {
             hold_until = None;
             while ctx.active_workers.load(Ordering::Acquire) < ramp.min(cap)
-                && ctx.table.has_work(ctx.race && !any_limited(&ctx.limiters))
+                && ctx.table.has_work(ctx.may_race())
             {
                 let fetcher = factory.create(next_id);
                 spawn_worker(&mut workers, &ctx, &mut next_id, fetcher, None);

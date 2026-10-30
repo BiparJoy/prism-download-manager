@@ -52,6 +52,8 @@ struct Seg {
     received: u64,
     meter: SpeedMeter,
     peak_rate: u64,
+    /// Adapter the owner's current request runs over (multi-network downloads).
+    network: Option<String>,
 }
 
 impl Seg {
@@ -70,6 +72,7 @@ impl Seg {
             received: 0,
             meter: SpeedMeter::default(),
             peak_rate: 0,
+            network: None,
         }
     }
 
@@ -387,6 +390,15 @@ impl SegmentTable {
         }
     }
 
+    /// Records the network the owner's current request runs over.
+    pub(crate) fn set_network(&self, seg: usize, worker: WorkerId, network: Option<String>) {
+        let mut g = self.lock();
+        let s = &mut g.segs[seg];
+        if s.owner == Some(worker) {
+            s.network = network;
+        }
+    }
+
     /// Current end of a segment (may have shrunk because of a split).
     pub(crate) fn end_of(&self, seg: usize) -> u64 {
         self.lock().segs[seg].end
@@ -533,6 +545,7 @@ impl SegmentTable {
                 pos: s.pos,
                 end: s.end,
                 speed: if s.done() { 0 } else { s.meter.rate() },
+                network: s.owner.and(s.network.clone()),
                 status: if s.done() {
                     SegmentStatus::Done
                 } else if s.retrying {

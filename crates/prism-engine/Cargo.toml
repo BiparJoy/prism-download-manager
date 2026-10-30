@@ -41,6 +41,7 @@ m3u8-rs = "6.0"
 dash-mpd-core = "0.1"
 aes = "0.8"
 cbc = { version = "0.1", features = ["std"] }
+if-addrs = "0.15"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl", "Win32_Storage_FileSystem"] }

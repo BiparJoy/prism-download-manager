@@ -76,6 +76,7 @@ pub(crate) fn build_ctx(
         probed: Default::default(),
         expect_file: req.expect_file,
         source_generation: Arc::new(AtomicU64::new(0)),
+        networks: engine.networks.clone(),
     }))
 }
 
@@ -246,6 +247,12 @@ pub(crate) async fn run(
         read_timeout: cfg.read_timeout,
         max_retries: req.max_retries.unwrap_or(cfg.max_retries),
         race: ranged,
+        // Through a proxy on this computer no connection is pinned (see `HttpFetcher::new`).
+        networks: if super::client::proxy_is_local(&setup.ctx.spec.proxy) {
+            Default::default()
+        } else {
+            engine.networks.clone()
+        },
         few_requests: Default::default(),
     });
     if ranged {

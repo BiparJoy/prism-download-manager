@@ -60,7 +60,7 @@ pub enum SegmentStatus {
 /// (`[start, end)`, `pos` = next byte to receive). For HLS/DASH jobs each entry is one media
 /// segment and the unit is "segments": `start = index`, `end = index + 1`, `pos` is `end` when
 /// done.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegmentView {
     /// First byte (or media segment index).
     pub start: u64,
@@ -70,6 +70,9 @@ pub struct SegmentView {
     pub end: u64,
     /// Current speed of the connection working on it (bytes/s).
     pub speed: u64,
+    /// Adapter the connection runs over when downloading over several networks.
+    #[serde(default)]
+    pub network: Option<String>,
     /// Status.
     pub status: SegmentStatus,
 }

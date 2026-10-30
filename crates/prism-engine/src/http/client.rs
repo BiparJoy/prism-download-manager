@@ -6,6 +6,7 @@ use std::time::Duration;
 use reqwest::redirect::Policy;
 
 use crate::error::EngineError;
+use crate::network::Network;
 use crate::request::{HttpPreference, ProxyConfig};
 
 /// Maximum redirects followed.
@@ -73,6 +74,14 @@ fn proxy_url(
 /// concurrent request, which — with one client per worker — means one socket per worker,
 /// reused across that worker's sequential range requests.
 pub(crate) fn build_client(spec: &ClientSpec) -> Result<reqwest::Client, EngineError> {
+    build_client_on(spec, None)
+}
+
+/// Like [`build_client`], with every connection pinned to `network` (see [`crate::network`]).
+pub(crate) fn build_client_on(
+    spec: &ClientSpec,
+    network: Option<&Network>,
+) -> Result<reqwest::Client, EngineError> {
     let mut tls = spec.tls.clone();
     tls.alpn_protocols = match spec.http {
         HttpPreference::Http1Only => vec![b"http/1.1".to_vec()],
@@ -134,8 +143,70 @@ pub(crate) fn build_client(spec: &ClientSpec) -> Result<reqwest::Client, EngineE
             })?,
         ),
     };
+    if let Some(n) = network {
+        b = bind_to_network(b, n);
+    }
     b.build()
         .map_err(|e| EngineError::network(format!("cannot create HTTP client: {e}")))
+}
+
+/// Whether the proxy runs on this computer (`localhost`, `127.x`, `::1`).
+// shortcut: the System proxy is only read from the environment, not from the Windows/macOS
+// proxy settings; read those when a local system proxy there turns out to break pinning.
+pub(crate) fn proxy_is_local(proxy: &ProxyConfig) -> bool {
+    let is_local = |url: &str| {
+        let with_scheme = if url.contains("://") {
+            url.to_string()
+        } else {
+            format!("http://{url}")
+        };
+        url::Url::parse(&with_scheme).is_ok_and(|u| match u.host() {
+            Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        })
+    };
+    match proxy {
+        ProxyConfig::None => false,
+        ProxyConfig::Http { url, .. } | ProxyConfig::Socks5 { url, .. } => is_local(url),
+        ProxyConfig::System => [
+            "ALL_PROXY",
+            "all_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+        ]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .any(|v| is_local(&v)),
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn bind_to_network(b: reqwest::ClientBuilder, n: &Network) -> reqwest::ClientBuilder {
+    // Bound to the adapter itself; only connect to address families it has.
+    let b = b.interface(n.interface());
+    match n.families() {
+        (true, true) | (false, false) => b,
+        (v4, v6) => b.dns_resolver(Arc::new(crate::network::FamilyResolver { v4, v6 })),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn bind_to_network(b: reqwest::ClientBuilder, n: &Network) -> reqwest::ClientBuilder {
+    // Routed by source address: bind it and only connect to addresses of its family.
+    match n.local_addr() {
+        Some(addr) => {
+            b.local_address(addr)
+                .dns_resolver(Arc::new(crate::network::FamilyResolver {
+                    v4: addr.is_ipv4(),
+                    v6: addr.is_ipv6(),
+                }))
+        }
+        None => b,
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +228,25 @@ mod tests {
             "socks5h://u:p%20w@h:1080"
         );
         assert!(proxy_url("http://[bad", &None, &None, false).is_err());
+    }
+
+    #[test]
+    fn local_proxies_are_recognised() {
+        let http = |url: &str| ProxyConfig::Http {
+            url: url.into(),
+            username: None,
+            password: None,
+        };
+        assert!(proxy_is_local(&http("127.0.0.1:7890")));
+        assert!(proxy_is_local(&http("http://localhost:3128")));
+        assert!(proxy_is_local(&ProxyConfig::Socks5 {
+            url: "socks5://[::1]:1080".into(),
+            username: None,
+            password: None,
+        }));
+        assert!(!proxy_is_local(&http("proxy.example.com:3128")));
+        assert!(!proxy_is_local(&http("10.0.0.5:3128")));
+        assert!(!proxy_is_local(&ProxyConfig::None));
     }
 
     #[test]

@@ -26,11 +26,14 @@ use crate::config::EngineConfig;
 use crate::engine::EngineInner;
 use crate::error::EngineError;
 use crate::filename::{self, part_path_for};
-use crate::http::client::{ClientSpec, base_tls_config, build_client};
+use crate::http::client::{
+    ClientSpec, base_tls_config, build_client, build_client_on, proxy_is_local,
+};
 use crate::http::fetcher::error_chain;
 use crate::http::{base_headers, header_string, parse_content_range};
 use crate::job::{Command, JobShared, ProgressSource, StopReason};
 use crate::limiter::{RateLimiter, acquire_all};
+use crate::network::{NetworkLease, NetworkSet, server_of};
 use crate::progress::{
     Completed, DownloadEvent, DownloadState, ProbeInfo, SegmentStatus, SegmentView,
 };
@@ -282,6 +285,7 @@ impl MediaProgress {
                 pos: if *d { i as u64 + 1 } else { i as u64 },
                 end: i as u64 + 1,
                 speed: 0,
+                network: None,
                 status: if *d {
                     SegmentStatus::Done
                 } else if g.active.contains(&i) {
@@ -356,7 +360,12 @@ fn seg_file(work_dir: &Path, global: usize) -> PathBuf {
 
 /// Shared state of the segment workers.
 struct Fetch {
+    /// For the manifest and keys, and for segments when no network is chosen.
     client: reqwest::Client,
+    /// To build a client pinned to a network for each worker.
+    spec: ClientSpec,
+    /// `None` through a proxy on this computer (it picks the route).
+    networks: Option<Arc<NetworkSet>>,
     headers: HeaderMap,
     plan: MediaPlan,
     progress: Arc<MediaProgress>,
@@ -398,22 +407,64 @@ impl Fetch {
         Ok(key)
     }
 
+    /// Keeps a worker on a usable network, like an HTTP connection: leases one (moving off a
+    /// network switched off or failing for `server`), and refuses the default route while it
+    /// may be a network the user switched off.
+    fn pick_lane(&self, lane: &mut Option<Lane>, server: &str) -> Result<(), EngineError> {
+        let Some(networks) = &self.networks else {
+            return Ok(());
+        };
+        let fine = lane.as_ref().is_some_and(|l| {
+            let n = l.lease.network();
+            n.is_enabled() && !n.is_failing_for(server)
+        });
+        if fine {
+            return Ok(());
+        }
+        match networks.lease(server) {
+            Some(lease) => {
+                let client = build_client_on(&self.spec, Some(&**lease.network()))?;
+                *lane = Some(Lane { lease, client });
+            }
+            None if networks.default_route_excluded() => {
+                *lane = None;
+                return Err(EngineError::network(
+                    "none of the networks switched on is connected",
+                ));
+            }
+            None => *lane = None,
+        }
+        Ok(())
+    }
+
     /// Downloads one segment into memory (rate limited), decrypting if needed.
-    async fn download(&self, seg: &MediaSegment) -> Result<Vec<u8>, EngineError> {
-        let mut rb = self
-            .client
-            .get(seg.url.clone())
-            .headers(self.headers.clone());
+    async fn download(
+        &self,
+        seg: &MediaSegment,
+        lane: Option<&Lane>,
+    ) -> Result<Vec<u8>, EngineError> {
+        let client = lane.map_or(&self.client, |l| &l.client);
+        let network = lane.map(|l| l.lease.network());
+        let server = server_of(&seg.url);
+        let mut rb = client.get(seg.url.clone()).headers(self.headers.clone());
         if let Some((a, b)) = seg.range {
             rb = rb.header(header::RANGE, format!("bytes={a}-{}", b - 1));
         }
         let mut resp = rb.send().await.map_err(|e| {
+            if e.is_connect()
+                && let Some(n) = network
+            {
+                n.on_connect_failure(&server);
+            }
             if e.is_timeout() {
                 EngineError::Timeout
             } else {
                 EngineError::network(error_chain(&e))
             }
         })?;
+        if let Some(n) = network {
+            n.on_success(&server);
+        }
         let status = resp.status().as_u16();
         let skip = match (status, seg.range) {
             (206, Some((a, _))) => {
@@ -442,6 +493,10 @@ impl Fetch {
                 .map_err(|e| EngineError::network(error_chain(&e)))?;
             let Some(chunk) = chunk else { break };
             acquire_all(&self.limiters, chunk.len() as u64).await;
+            if let Some(n) = network {
+                n.limiter().acquire(chunk.len() as u64).await;
+                n.add_received(chunk.len() as u64);
+            }
             let start = seen;
             seen += chunk.len() as u64;
             // Keep only [skip, skip + want).
@@ -486,6 +541,7 @@ impl Fetch {
         self: Arc<Self>,
         stop: tokio_util::sync::CancellationToken,
     ) -> Result<(), EngineError> {
+        let mut lane: Option<Lane> = None;
         loop {
             if stop.is_cancelled() {
                 return Ok(());
@@ -498,9 +554,13 @@ impl Fetch {
             self.progress.start(global);
             let mut backoff = Backoff::default();
             let mut attempt = 0u32;
+            let server = server_of(&seg.url);
             let data = loop {
                 let r = tokio::select! {
-                    r = self.download(&seg) => r,
+                    r = async {
+                        self.pick_lane(&mut lane, &server)?;
+                        self.download(&seg, lane.as_ref()).await
+                    } => r,
                     _ = stop.cancelled() => {
                         self.progress.finish(global, None);
                         return Ok(());
@@ -539,6 +599,12 @@ impl Fetch {
             self.progress.finish(global, Some(len));
         }
     }
+}
+
+/// A segment worker's network and the client pinned to it.
+struct Lane {
+    lease: NetworkLease,
+    client: reqwest::Client,
 }
 
 /// Writes a segment file durably: `.tmp` → fsync → rename.
@@ -798,6 +864,8 @@ async fn run_inner(
     let before = progress.downloaded();
     let fetch = Arc::new(Fetch {
         client,
+        networks: (!proxy_is_local(&spec.proxy)).then(|| engine.networks.clone()),
+        spec,
         headers,
         plan: plan.clone(),
         progress: progress.clone(),

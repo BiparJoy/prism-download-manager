@@ -10,7 +10,7 @@ use super::{ChunkStream, FailKind, FetchError, InitialStream, RangeFetcher, SegC
 use crate::backoff::Backoff;
 use crate::error::EngineError;
 use crate::hostlimits::HostPermit;
-use crate::limiter::{acquire_all, any_limited};
+use crate::limiter::acquire_all;
 use crate::progress::DownloadEvent;
 
 /// Upper bound for a server-suggested `Retry-After`.
@@ -122,9 +122,13 @@ impl<F: RangeFetcher> Worker<F> {
                     if ctx.try_retire() {
                         return WorkerExit::Retired;
                     }
+                    // Its network was switched off: a replacement connection goes elsewhere.
+                    if self.fetcher.network().is_some_and(|n| !n.is_enabled()) {
+                        return WorkerExit::Idle;
+                    }
                     match ctx
                         .table
-                        .acquire(self.id, self.allow_race && !any_limited(&ctx.limiters))
+                        .acquire(self.id, self.allow_race && ctx.may_race())
                     {
                         Some((a, kind)) => {
                             match kind {
@@ -198,6 +202,10 @@ impl<F: RangeFetcher> Worker<F> {
                 }
             };
             self.set_connected(true);
+            if !a.race {
+                let net = self.fetcher.network().map(|n| n.interface().to_string());
+                ctx.table.set_network(a.seg, self.id, net);
+            }
             // The server may have promised less than we asked for.
             let req_end = match (req_end, stream.range_end()) {
                 (Some(a), Some(b)) => Some(a.min(b)),
@@ -212,6 +220,10 @@ impl<F: RangeFetcher> Worker<F> {
                     if !a.race && ctx.try_retire() {
                         self.release(current, false);
                         return WorkerExit::Retired;
+                    }
+                    if self.fetcher.network().is_some_and(|n| !n.is_enabled()) {
+                        self.release(current, false);
+                        return WorkerExit::Idle;
                     }
                 }
                 Ok(Pump::Reopen) => {}
@@ -255,6 +267,11 @@ impl<F: RangeFetcher> Worker<F> {
                 self.release(Some(a), false);
                 return Some(WorkerExit::Fatal(e.error));
             }
+            // Its network could not connect to the server: not a server limit. An ordinary
+            // retry, whose request the fetcher moves to another network once this one is
+            // benched; when every network is down, the retries run out as they would without
+            // networks.
+            FailKind::MaybeRefused if e.connect && self.fetcher.network().is_some() => {}
             FailKind::Refused | FailKind::MaybeRefused => {
                 let others = ctx
                     .connected
@@ -385,6 +402,14 @@ impl<F: RangeFetcher> Worker<F> {
                 biased;
                 _ = ctx.stop.cancelled() => return Ok(Pump::Stopped),
                 _ = acquire_all(&ctx.limiters, len) => {}
+            }
+            if let Some(n) = self.fetcher.network() {
+                tokio::select! {
+                    biased;
+                    _ = ctx.stop.cancelled() => return Ok(Pump::Stopped),
+                    _ = n.limiter().acquire(len) => {}
+                }
+                n.add_received(len);
             }
             let permit = tokio::select! {
                 biased;

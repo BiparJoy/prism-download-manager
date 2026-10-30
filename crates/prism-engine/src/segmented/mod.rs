@@ -20,7 +20,8 @@ use tokio_util::sync::CancellationToken;
 use crate::error::EngineError;
 use crate::hostlimits::{HostLimits, HostPermit};
 use crate::job::JobShared;
-use crate::limiter::RateLimiter;
+use crate::limiter::{RateLimiter, any_limited};
+use crate::network::{Network, NetworkSet};
 use table::{Assignment, SegmentTable, WorkerId};
 use writer::Writer;
 
@@ -47,6 +48,9 @@ pub(crate) struct FetchError {
     pub error: EngineError,
     /// Server-suggested delay (`Retry-After`).
     pub retry_after: Option<Duration>,
+    /// No connection could be made (refused, unreachable, timed out, no usable address):
+    /// on a pinned network that is about the network, not a server limit.
+    pub connect: bool,
 }
 
 impl FetchError {
@@ -55,6 +59,7 @@ impl FetchError {
             kind: FailKind::Transient,
             error,
             retry_after: None,
+            connect: false,
         }
     }
     pub(crate) fn fatal(error: EngineError) -> Self {
@@ -62,6 +67,7 @@ impl FetchError {
             kind: FailKind::Fatal,
             error,
             retry_after: None,
+            connect: false,
         }
     }
     pub(crate) fn refused(error: EngineError, retry_after: Option<Duration>) -> Self {
@@ -69,6 +75,7 @@ impl FetchError {
             kind: FailKind::Refused,
             error,
             retry_after,
+            connect: false,
         }
     }
     pub(crate) fn maybe_refused(error: EngineError) -> Self {
@@ -76,6 +83,7 @@ impl FetchError {
             kind: FailKind::MaybeRefused,
             error,
             retry_after: None,
+            connect: false,
         }
     }
 }
@@ -106,6 +114,10 @@ pub(crate) trait RangeFetcher: Send + 'static {
     /// Whether streams end exactly at the requested `to` (HTTP ranges) so the connection can
     /// be reused for the next range.
     fn bounded(&self) -> bool;
+    /// The network this connection is pinned to, if any (multi-network downloads).
+    fn network(&self) -> Option<&Arc<Network>> {
+        None
+    }
 }
 
 /// Creates per-worker fetchers.
@@ -141,12 +153,21 @@ pub(crate) struct SegCtx {
     pub max_retries: u32,
     /// Whether duplicate racing of slow tails is allowed.
     pub race: bool,
+    /// The networks connections may be pinned to (empty for FTP).
+    pub networks: Arc<NetworkSet>,
     /// Set once the server rate-limited requests (`429`/`503`): from then on every request
     /// covers the whole remaining segment, minimizing the number of requests.
     pub few_requests: AtomicBool,
 }
 
 impl SegCtx {
+    /// Whether slow tails may be raced right now: not under any speed limit, a network's
+    /// included, where the duplicate bytes would eat the capped budget. The supervisor and
+    /// the workers must agree, or idle workers are spawned for races they then refuse.
+    pub(crate) fn may_race(&self) -> bool {
+        self.race && !any_limited(&self.limiters) && !self.networks.any_capped()
+    }
+
     /// Atomically retires one worker if more are running than targeted.
     pub(crate) fn try_retire(&self) -> bool {
         let mut cur = self.active_workers.load(Ordering::Acquire);

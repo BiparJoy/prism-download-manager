@@ -9,13 +9,14 @@ use reqwest::header::{self, HeaderValue};
 use url::Url;
 
 use super::auth::ChallengeAction;
-use super::client::build_client;
+use super::client::{build_client_on, proxy_is_local};
 use super::{
     HttpCtx, SourceRef, Validators, header_string, parse_content_range, parse_unsatisfied_range,
     retry_after, strong_etag,
 };
 use crate::error::EngineError;
 use crate::filename;
+use crate::network::{Network, NetworkLease, server_of};
 use crate::progress::ProbeInfo;
 use crate::request::HttpMethod;
 use crate::segmented::table::WorkerId;
@@ -66,6 +67,8 @@ pub(crate) struct HttpFetcher {
     ctx: Arc<HttpCtx>,
     worker: WorkerId,
     client: Result<reqwest::Client, EngineError>,
+    /// The network this worker's connection is pinned to (`None` = default route).
+    lease: Option<NetworkLease>,
     /// The NTLM handshake succeeded on the current connection.
     ntlm_ready: bool,
 }
@@ -98,6 +101,42 @@ pub(crate) fn error_chain(e: &dyn std::error::Error) -> String {
 }
 
 fn map_send_error(e: reqwest::Error) -> FetchError {
+    let connect = e.is_connect() && !reached_server(&e);
+    FetchError {
+        connect,
+        ..classify_send_error(e)
+    }
+}
+
+/// Whether the server answered the connection before it failed: reset or closed (reqwest calls
+/// a reset during the TLS handshake a connect error too), or a TLS error. That is the server's
+/// doing (a connection limit), not a network that can't reach it.
+fn reached_server(e: &reqwest::Error) -> bool {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
+    fn answered(c: &(dyn std::error::Error + 'static)) -> bool {
+        if c.downcast_ref::<rustls::Error>().is_some() {
+            return true;
+        }
+        let Some(io) = c.downcast_ref::<std::io::Error>() else {
+            return false;
+        };
+        // A wrapped io::Error (TLS streams) isn't in the `source()` chain: look inside.
+        matches!(
+            io.kind(),
+            ConnectionReset | ConnectionAborted | UnexpectedEof | BrokenPipe
+        ) || io.get_ref().is_some_and(|inner| answered(inner))
+    }
+    let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(c) = cur {
+        if answered(c) {
+            return true;
+        }
+        cur = c.source();
+    }
+    false
+}
+
+fn classify_send_error(e: reqwest::Error) -> FetchError {
     if e.is_timeout() {
         FetchError::transient(EngineError::Timeout)
     } else if e.is_redirect() {
@@ -125,11 +164,18 @@ fn status_error(status: u16) -> EngineError {
 
 impl HttpFetcher {
     pub(crate) fn new(ctx: Arc<HttpCtx>, worker: WorkerId) -> Self {
-        let client = build_client(&ctx.spec);
+        // Through a proxy on this computer the proxy picks the route: no network to pin to.
+        let lease = if proxy_is_local(&ctx.spec.proxy) {
+            None
+        } else {
+            ctx.networks.lease(&server_of(&ctx.sources.original()))
+        };
+        let client = build_client_on(&ctx.spec, lease.as_ref().map(|l| &**l.network()));
         Self {
             ctx,
             worker,
             client,
+            lease,
             ntlm_ready: false,
         }
     }
@@ -177,6 +223,64 @@ impl HttpFetcher {
     /// Sends one request, transparently answering Basic/Digest challenges and running the
     /// NTLM handshake. A remaining `401` is returned to the caller.
     pub(crate) async fn send(
+        &mut self,
+        url: &Url,
+        range: Option<(u64, Option<u64>)>,
+        if_range: Option<&str>,
+    ) -> Result<reqwest::Response, FetchError> {
+        let server = server_of(url);
+        self.move_off_unusable_network(&server);
+        if self.lease.is_none() && !proxy_is_local(&self.ctx.spec.proxy) {
+            self.pick_up_network(&server)?;
+        }
+        let r = self.send_inner(url, range, if_range).await;
+        if let Some(l) = &self.lease {
+            match &r {
+                Ok(_) => l.network().on_success(&server),
+                Err(e) if e.connect => l.network().on_connect_failure(&server),
+                Err(_) => {}
+            }
+        }
+        r
+    }
+
+    /// Moves this connection to another network when its own one was switched off or can't
+    /// reach `server` (the probe retries on one fetcher, so it must not stay on a dead network).
+    fn move_off_unusable_network(&mut self, server: &str) {
+        let Some(current) = self.lease.as_ref().map(|l| l.network().clone()) else {
+            return;
+        };
+        if current.is_enabled() && !current.is_failing_for(server) {
+            return;
+        }
+        let next = self.ctx.networks.lease(server);
+        if next
+            .as_ref()
+            .is_some_and(|n| Arc::ptr_eq(n.network(), &current))
+        {
+            return;
+        }
+        self.client = build_client_on(&self.ctx.spec, next.as_ref().map(|l| &**l.network()));
+        self.lease = next;
+        self.ntlm_ready = false;
+    }
+
+    /// Without a network (none was usable when this connection started): takes one that came
+    /// back, or waits while the default route may be a network the user switched off.
+    fn pick_up_network(&mut self, server: &str) -> Result<(), FetchError> {
+        if let Some(next) = self.ctx.networks.lease(server) {
+            self.client = build_client_on(&self.ctx.spec, Some(&**next.network()));
+            self.lease = Some(next);
+            self.ntlm_ready = false;
+        } else if self.ctx.networks.default_route_excluded() {
+            return Err(FetchError::transient(EngineError::network(
+                "none of the networks switched on is connected",
+            )));
+        }
+        Ok(())
+    }
+
+    async fn send_inner(
         &mut self,
         url: &Url,
         range: Option<(u64, Option<u64>)>,
@@ -361,6 +465,7 @@ impl HttpFetcher {
                         kind: FailKind::Transient,
                         error: EngineError::Http { status },
                         retry_after: retry_after(&headers),
+                        connect: false,
                     });
                 }
                 s => return Err(FetchError::fatal(status_error(s))),
@@ -468,6 +573,17 @@ impl HttpFetcher {
                         self.ctx.sources.bench(src);
                         continue;
                     }
+                    // Signed links are often tied to the address that asked for them, and
+                    // each network has its own: try another network before calling it dead.
+                    let server = server_of(&url);
+                    if let Some(net) = self.network().cloned()
+                        && status != 404
+                        && self.ctx.networks.has_other_for(&server, &net)
+                        && switch(&mut switches)
+                    {
+                        net.on_refused(&server);
+                        continue;
+                    }
                     let probed = self.ctx.was_probed();
                     return Err(match status {
                         403 => FetchError::refused(
@@ -502,6 +618,7 @@ impl HttpFetcher {
                         kind: FailKind::Transient,
                         error: EngineError::Http { status },
                         retry_after: retry_after(resp.headers()),
+                        connect: false,
                     });
                 }
                 s => return Err(FetchError::fatal(EngineError::Http { status: s })),
@@ -561,6 +678,10 @@ impl RangeFetcher for HttpFetcher {
     fn bounded(&self) -> bool {
         self.ctx.validators().ranged
     }
+
+    fn network(&self) -> Option<&Arc<Network>> {
+        self.lease.as_ref().map(NetworkLease::network)
+    }
 }
 
 /// Cloudflare's bot check ("Just a moment..."): a challenge only a real browser passes, so
@@ -604,5 +725,44 @@ pub(crate) fn probe_info(
             .get(header::ACCEPT_RANGES)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.to_ascii_lowercase().contains("bytes")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn send_error(url: String) -> FetchError {
+        let e = reqwest::Client::new().get(url).send().await.unwrap_err();
+        map_send_error(e)
+    }
+
+    #[tokio::test]
+    async fn failing_to_connect_is_told_apart_from_a_reset() {
+        // Nothing listens on a port that was just freed: the connection is refused.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let refused = send_error(format!("http://127.0.0.1:{port}/")).await;
+        assert!(refused.connect, "{:?}", refused.error);
+
+        // A server that accepts and closes at once (a connection limit) is not a network
+        // failure.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                drop(sock);
+            }
+        });
+        let reset = send_error(format!("http://{addr}/")).await;
+        assert!(!reset.connect, "{:?}", reset.error);
+        assert_eq!(reset.kind, FailKind::MaybeRefused);
+        // The same during the TLS handshake (reqwest reports that as a connect error).
+        let tls_reset = send_error(format!("https://{addr}/")).await;
+        assert!(!tls_reset.connect, "{:?}", tls_reset.error);
+        assert_eq!(tls_reset.kind, FailKind::MaybeRefused);
     }
 }
