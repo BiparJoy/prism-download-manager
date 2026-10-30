@@ -242,6 +242,50 @@ const TEXTS: &[[&str; 9]] = &[
         "يسمح {host} لمتصفح الويب فقط بتنزيل هذا الملف، لذا يتولى المتصفح تنزيله.",
         "{host} bu dosyanın yalnızca bir web tarayıcısıyla indirilmesine izin veriyor, bu yüzden dosyayı tarayıcı indiriyor.",
     ],
+    [
+        "Conversion finished",
+        "Převod dokončen",
+        "Umwandlung abgeschlossen",
+        "Conversión terminada",
+        "Conversion terminée",
+        "Conversione completata",
+        "Konversi selesai",
+        "اكتمل التحويل",
+        "Dönüştürme tamamlandı",
+    ],
+    [
+        "Smaller file ready",
+        "Menší soubor je hotový",
+        "Kleinere Datei ist fertig",
+        "Archivo más pequeño listo",
+        "Fichier allégé prêt",
+        "File più leggero pronto",
+        "File yang lebih kecil sudah siap",
+        "الملف الأصغر جاهز",
+        "Küçültülmüş dosya hazır",
+    ],
+    [
+        "ZIP file ready",
+        "Soubor ZIP je hotový",
+        "ZIP-Datei ist fertig",
+        "Archivo ZIP listo",
+        "Fichier ZIP prêt",
+        "File ZIP pronto",
+        "File ZIP sudah siap",
+        "ملف ZIP جاهز",
+        "ZIP dosyası hazır",
+    ],
+    [
+        "Conversion failed",
+        "Převod se nezdařil",
+        "Umwandlung fehlgeschlagen",
+        "La conversión falló",
+        "Échec de la conversion",
+        "Conversione non riuscita",
+        "Konversi gagal",
+        "فشل التحويل",
+        "Dönüştürme başarısız oldu",
+    ],
 ];
 
 #[cfg(test)]
@@ -278,6 +322,8 @@ mod tests {
         assert_eq!(tr("Something new", &[]), "Something new");
         set_language("tr");
         assert_eq!(tr("Open Prism", &[]), "Prism'i aç");
+        set_language("de");
+        assert_eq!(tr("Conversion finished", &[]), "Umwandlung abgeschlossen");
         set_language("en");
         assert_eq!(tr("Pause all", &[]), "Pause all");
         set_language("ja");

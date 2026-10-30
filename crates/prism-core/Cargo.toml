@@ -36,6 +36,9 @@ hex = "0.4"
 parking_lot = "0.12"
 fs4 = { version = "1.1", features = ["sync"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
+# Unpacking single files of a ZIP as they arrive ("What's inside"): the zip crate's own inflater.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+crc32fast = "1.5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Power", "Win32_System_Shutdown", "Win32_Security", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_System_RemoteDesktop", "Win32_System_DataExchange"] }

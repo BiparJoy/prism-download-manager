@@ -8,6 +8,8 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::section::Section;
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
@@ -421,6 +423,8 @@ pub struct OutputOptions {
     /// yt-dlp style output template (`%(title)s [%(id)s].%(ext)s`).
     pub file_template: String,
     pub output_dir: PathBuf,
+    /// Only this part of the video (yt-dlp cuts it, see [`crate::plan::part`]).
+    pub section: Option<Section>,
 }
 
 impl Default for OutputOptions {
@@ -440,6 +444,7 @@ impl Default for OutputOptions {
             sponsorblock: SponsorBlockOptions::default(),
             file_template: DEFAULT_TEMPLATE.into(),
             output_dir: PathBuf::new(),
+            section: None,
         }
     }
 }

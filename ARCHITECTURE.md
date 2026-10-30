@@ -146,6 +146,7 @@ Full Rust docs live in the crate (`cargo doc -p prism-engine`).
 | `clipboard` | Clipboard URL monitor. |
 | `antivirus` | Post-download scan (Defender `MpCmdRun`, `clamscan`, custom command). |
 | `platform` | OS abstractions: power actions, open/reveal, autostart, native-messaging registration (Windows registry / Linux+macOS manifest paths), free space. |
+| `media` | Tools: convert, make smaller (fit a size limit) and ZIP jobs for finished files, one ffmpeg at a time; the work itself is `prism_video::media`. |
 | `batch` | URL pattern expansion (`file[001-100].zip`, `[a-z]`), text-file import. |
 
 ## 6. Browser integration protocol

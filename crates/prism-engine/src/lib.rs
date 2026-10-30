@@ -49,6 +49,7 @@ pub use config::EngineConfig;
 pub use engine::Engine;
 pub use error::EngineError;
 pub use hostlimits::HostLimit;
+pub use http::remote::{RemoteFile, RemoteStream};
 pub use job::DownloadHandle;
 pub use limiter::{MAX_ACQUIRE, RateLimiter};
 pub use media::{VariantInfo, list_variants};

@@ -127,6 +127,8 @@ pub(crate) struct State {
     nonces: Mutex<HashSet<String>>,
     expiring_first_seen: Mutex<HashMap<String, Instant>>,
     redirect_counter: AtomicU64,
+    /// `/blob/<name>` files: their bytes and content type.
+    blobs: Mutex<HashMap<String, (Bytes, String)>>,
 }
 
 impl State {
@@ -144,7 +146,15 @@ impl State {
             nonces: Mutex::new(HashSet::new()),
             expiring_first_seen: Mutex::new(HashMap::new()),
             redirect_counter: AtomicU64::new(0),
+            blobs: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn put_blob(&self, name: &str, data: Bytes, content_type: &str) {
+        self.blobs
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), (data, content_type.to_string()));
     }
 
     pub(crate) fn stats(&self) -> ServerStats {
@@ -380,6 +390,7 @@ async fn handle(
             file_route(&state, &conn, &req, rest, &query, &uri).await
         }
         "redirect" => redirect_route(&state, rest, &query),
+        "blob" => blob_route(&state, &req, rest, &query, &uri),
         "status" => {
             let code = rest
                 .parse::<u16>()
@@ -424,6 +435,70 @@ fn redirect_route(state: &State, rest: &str, query: &HashMap<String, String>) ->
         header::LOCATION,
         HeaderValue::from_str(&location).unwrap_or(HeaderValue::from_static("/")),
     );
+    r
+}
+
+/// An in-memory file added with [`crate::TestServer::put_blob`]: single ranges (unless
+/// `ranges=0`), a strong ETag of its content, `auth=basic|digest`.
+fn blob_route(
+    state: &State,
+    req: &Request<Incoming>,
+    name: &str,
+    query: &HashMap<String, String>,
+    uri: &str,
+) -> Response<Body> {
+    let Some((data, content_type)) = state.blobs.lock().unwrap().get(name).cloned() else {
+        return status(StatusCode::NOT_FOUND, "no such blob");
+    };
+    let mut opts = state.config.file_defaults.clone();
+    if let Err(e) = opts.apply_query(query) {
+        return status(StatusCode::BAD_REQUEST, &e);
+    }
+    if let Some(r) = check_auth(state, req, opts.auth, uri) {
+        return r;
+    }
+    let size = data.len() as u64;
+    let range = req
+        .headers()
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .filter(|_| opts.ranges)
+        .map(|h| parse_range(h, size));
+    let (code, start, end) = match range {
+        Some(Err(())) => {
+            let mut r = status(StatusCode::RANGE_NOT_SATISFIABLE, "range not satisfiable");
+            r.headers_mut().insert(
+                header::CONTENT_RANGE,
+                HeaderValue::from_str(&format!("bytes */{size}")).expect("ascii"),
+            );
+            return r;
+        }
+        Some(Ok(Some((a, b)))) => (StatusCode::PARTIAL_CONTENT, a, b + 1),
+        _ => (StatusCode::OK, 0, size),
+    };
+    let body = if req.method() == Method::HEAD {
+        empty()
+    } else {
+        full(data.slice(start as usize..end as usize))
+    };
+    let mut r = Response::new(body);
+    *r.status_mut() = code;
+    let h = r.headers_mut();
+    if code == StatusCode::PARTIAL_CONTENT {
+        h.insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {start}-{}/{size}", end - 1)).expect("ascii"),
+        );
+    }
+    if opts.ranges {
+        h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    }
+    h.insert(header::CONTENT_LENGTH, HeaderValue::from(end - start));
+    let etag = format!("\"{}\"", &content::sha256_hex(&data)[..16]);
+    h.insert(header::ETAG, HeaderValue::from_str(&etag).expect("ascii"));
+    if let Ok(v) = HeaderValue::from_str(&content_type) {
+        h.insert(header::CONTENT_TYPE, v);
+    }
     r
 }
 

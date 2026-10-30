@@ -162,6 +162,9 @@ fn main() {
             commands::confirm_capture,
             commands::cancel_capture,
             commands::reprobe_capture,
+            commands::zip_contents,
+            commands::extract_zip_file,
+            commands::cancel_zip_file,
             commands::batch_from_pattern,
             commands::batch_from_text,
             commands::get_batch,
@@ -181,6 +184,15 @@ fn main() {
             commands::hf_search,
             commands::hf_present,
             commands::hf_add,
+            commands::media_inspect,
+            commands::media_plan,
+            commands::media_start,
+            commands::media_cancel,
+            commands::media_jobs,
+            commands::media_clear,
+            commands::open_tools,
+            commands::open_file,
+            commands::reveal_path,
             commands::start_items,
             commands::pause_items,
             commands::pause_all,
@@ -491,7 +503,13 @@ fn spawn_event_forwarder(app: AppHandle, core: Core) {
         loop {
             let event = match rx.recv().await {
                 Ok(e) => e,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // The windows missed events, perhaps a download that finished (#41): they get
+                    // the whole list again (stopped downloads drop their live progress).
+                    tracing::warn!("the windows missed {n} events; sending them the list again");
+                    let _ = app.emit("core", &CoreEvent::ItemsAdded(core.bootstrap().items));
+                    continue;
+                }
                 Err(_) => break,
             };
             side_effects(
@@ -621,6 +639,32 @@ fn side_effects(
             let id = (!source.is_empty()).then(|| encode_path(source));
             if let Err(e) = windows::open(app, "model", id.as_deref()) {
                 tracing::error!("could not open the model window: {e}");
+            }
+        }
+        CoreEvent::MediaJob(job) => {
+            // A long conversion that finished while nobody was looking at Prism.
+            use prism_core::media::{JobState, MediaOp};
+            let took = job.finished_at.zip(job.started_at).map(|(b, a)| b - a);
+            let looking = app
+                .webview_windows()
+                .values()
+                .any(|w| w.is_focused().unwrap_or(false));
+            if took.is_some_and(|ms| ms >= 10_000) && !looking {
+                let output = job
+                    .output
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| job.name.clone());
+                match (job.state, &job.op) {
+                    (JobState::Done, MediaOp::Shrink { .. }) => {
+                        notify("Smaller file ready", &output)
+                    }
+                    (JobState::Done, MediaOp::Zip) => notify("ZIP file ready", &output),
+                    (JobState::Done, _) => notify("Conversion finished", &output),
+                    (JobState::Failed, _) => notify("Conversion failed", &job.name),
+                    _ => {}
+                }
             }
         }
         CoreEvent::ShowMain => windows::show_main(app),

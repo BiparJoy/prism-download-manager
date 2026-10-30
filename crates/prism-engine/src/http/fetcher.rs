@@ -27,6 +27,12 @@ pub(crate) struct HttpStream {
     end: Option<u64>,
 }
 
+impl HttpStream {
+    pub(crate) fn new(resp: reqwest::Response, end: Option<u64>) -> Self {
+        Self { resp, end }
+    }
+}
+
 impl ChunkStream for HttpStream {
     async fn next_chunk(&mut self) -> Result<Option<Bytes>, FetchError> {
         self.resp.chunk().await.map_err(|e| {
@@ -565,7 +571,7 @@ impl RangeFetcher for HttpFetcher {
 
 /// Cloudflare's bot check ("Just a moment..."): a challenge only a real browser passes, so
 /// retrying (or another connection) can't help.
-fn is_browser_check(headers: &header::HeaderMap) -> bool {
+pub(crate) fn is_browser_check(headers: &header::HeaderMap) -> bool {
     headers
         .get("cf-mitigated")
         .and_then(|v| v.to_str().ok())

@@ -149,6 +149,7 @@ yt-dlp --ignore-config [--ffmpeg-location D] [--js-runtimes deno:PATH] [--proxy 
 * The video is not live, upcoming or post-live.
 * Nothing is DRM-protected.
 * SponsorBlock is not set to **Remove**. Mark is supported: Prism fetches the segments itself and adds them as chapters.
+* No part of the video is asked for (`OutputOptions.section`). Fetching the whole file to keep a minute of it would waste the rest.
 
 Otherwise the result is `Plan::YtDlp`, with `reason` set.
 
@@ -163,7 +164,8 @@ The yt-dlp job arguments are:
 
 ```
 -f <id>+<id>/bv*[height<=H]+ba/b[height<=H]/b  (--merge-output-format C --remux-video C | -x --audio-format F --audio-quality Q)
--N 8 [--sub-langs L --write-subs --write-auto-subs --embed-subs] [--embed-thumbnail --convert-thumbnails jpg] [--write-thumbnail]
+-N 8 [--download-sections *S-E [--force-keyframes-at-cuts] --downloader-args "ffmpeg:-progress pipe:1 -nostats"]
+[--sub-langs L --write-subs --write-auto-subs --embed-subs] [--embed-thumbnail --convert-thumbnails jpg] [--write-thumbnail]
 [--embed-metadata] [--embed-chapters] [--sponsorblock-mark|--sponsorblock-remove CATS]
 --newline --progress --color never --progress-delta 0.5
 --progress-template "download:PRISM %(progress)j" --progress-template "postprocess:PRISMPP %(progress)j"
@@ -173,6 +175,8 @@ The yt-dlp job arguments are:
 At run time the service prepends `--ignore-config`, the tool locations, the proxy, the cookies and the headers, and appends `extraYtdlpArgs -- URL`.
 
 Note that `PRISMPP` lines arrive on **stderr** and `PRISM`/`PRISMFILE` lines arrive on stdout. Both streams are parsed.
+
+**A part of a video** (`OutputOptions.section`, seconds; `Section::part_of` cuts it to the video and drops a range that is the whole video or shorter than a second): yt-dlp hands the part to ffmpeg, which fetches only that stretch. A video part gets `--force-keyframes-at-cuts`, so it starts and ends on the exact frame (ffmpeg encodes the part again). An audio part is copied, since audio frames are a few milliseconds long and the MP3 is then encoded only once. yt-dlp reports nothing while ffmpeg works, so ffmpeg writes `-progress` blocks to stdout and `PartProgress` turns them into the share of the part's time that is done (`percent`, with no `total`, since the size is unknown until the end). yt-dlp doesn't shift subtitles, chapters or SponsorBlock segments to a part, so a part gets none of them. The file name gets ` (1m23s–2m45s)` (`Section::file_suffix`).
 
 `OutputOptions.fileTemplate` takes a subset of yt-dlp's template syntax: `title`, `id`, `ext`, `uploader`, `channel`, `upload_date`, `extractor`, `duration` and `%%`. Unknown fields become `NA`, and `/` creates subdirectories. File names use the same replacement characters as yt-dlp's `--windows-filenames` (`：`, `？`, `⧸`, and so on), so both paths produce identical names.
 

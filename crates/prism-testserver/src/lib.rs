@@ -13,6 +13,7 @@
 //! | `/file/<name>?opts` (also `/`) | generated file; options in [`FileOptions`] (`size`, `seed`, `ranges`, `throttle`, `slow_conn`/`slow_rate`, `drop_after`, `drop_prob`, `ttfb_ms`, `etag`, `weak_etag`, `lm`, `cd`, `type`, `chunked`, `auth`) |
 //! | `/expiring/<key>?ttl_ms=N&opts` | like `/file`, but answers `410 Gone` once `ttl_ms` elapsed since the first request to that path (signed-URL simulation) |
 //! | `/redirect/<hops>?code=302&to=<target>` | redirect chain of `hops` hops ending at `to`; `{n}` in `to` is replaced by a counter, producing a fresh URL each time |
+//! | `/blob/<name>?opts` | bytes added with [`TestServer::put_blob`] (`ranges`, `auth`) |
 //! | `/status/<code>` | answers with that status code |
 //! | `/challenge` | a Cloudflare bot check: `403`, `cf-mitigated: challenge`, an HTML page |
 //! | `/hls/...` | [`HlsFixture`] |
@@ -34,6 +35,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
@@ -96,6 +98,11 @@ impl TestServer {
     /// Changes the content version of `/file/<name>` (new bytes, ETag and Last-Modified).
     pub fn set_version(&self, name: &str, version: u64) {
         self.state.set_version(name, version)
+    }
+
+    /// Serves `data` at `/blob/<name>` (replacing what was there: a new ETag).
+    pub fn put_blob(&self, name: &str, data: impl Into<Bytes>, content_type: &str) {
+        self.state.put_blob(name, data.into(), content_type)
     }
 
     /// Changes the concurrent connection limit at runtime.

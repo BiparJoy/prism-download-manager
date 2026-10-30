@@ -11,6 +11,7 @@ use crate::model::{
     SponsorBlockMode, SubtitleTrack, VideoInfo,
 };
 use crate::progress::{DL_TEMPLATE, FILE_PRINT, PP_TEMPLATE};
+use crate::section::Section;
 use crate::template::{render_template, temp_stem};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +70,9 @@ pub struct YtDlpJob {
     pub context: RequestContext,
     /// Why the accelerated path was not used (for logs / UI).
     pub reason: String,
+    /// The part of the video being cut (its progress is ffmpeg's, see [`crate::progress::PartProgress`]).
+    #[serde(default)]
+    pub section: Option<Section>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -85,22 +89,39 @@ fn find<'a>(info: &'a VideoInfo, id: &Option<String>) -> Option<Option<&'a Forma
     }
 }
 
+fn is_live(info: &VideoInfo) -> bool {
+    info.is_live
+        || matches!(
+            info.live_status.as_deref(),
+            Some("is_live" | "is_upcoming" | "post_live")
+        )
+}
+
+/// The part of the video to download: the options' section, cut to the video's length.
+/// `None` for the whole video, and for live streams (which have no fixed length).
+pub fn part(info: &VideoInfo, opts: &OutputOptions) -> Option<Section> {
+    if is_live(info) {
+        return None;
+    }
+    opts.section?.part_of(info.duration)
+}
+
 /// Why the accelerated path cannot be used, or `None` if it can.
 pub fn accelerated_blocker(
     info: &VideoInfo,
     choice: &Choice,
     opts: &OutputOptions,
 ) -> Option<String> {
-    if info.is_live
-        || matches!(
-            info.live_status.as_deref(),
-            Some("is_live" | "is_upcoming" | "post_live")
-        )
-    {
+    if is_live(info) {
         return Some("live stream".into());
     }
     if info.has_drm {
         return Some("DRM protected".into());
+    }
+    // Downloading the whole file to keep a minute of it would waste the rest: yt-dlp has
+    // ffmpeg fetch only that part.
+    if part(info, opts).is_some() {
+        return Some("part of the video".into());
     }
     if opts.sponsorblock.mode == SponsorBlockMode::Remove {
         return Some("SponsorBlock removal requires yt-dlp".into());
@@ -553,6 +574,10 @@ fn plan_accelerated(
     AcceleratedPlan { streams, post }
 }
 
+/// `--downloader-args` of a part: ffmpeg writes `-progress` blocks to stdout instead of its
+/// stats line.
+pub const PART_PROGRESS_ARGS: &str = "ffmpeg:-progress pipe:1 -nostats";
+
 /// yt-dlp `-f` selector for a choice, with graceful fallbacks if format ids changed.
 pub fn format_selector(choice: &Choice) -> String {
     let h = choice
@@ -616,8 +641,27 @@ pub fn plan_ytdlp(
         push(&mut a, &["--merge-output-format", c, "--remux-video", c]);
     }
     push(&mut a, &["-N", &concurrent_fragments.max(1).to_string()]);
+    let section = part(info, opts);
+    if let Some(s) = section {
+        push(&mut a, &["--download-sections", &s.ytdlp_arg()]);
+        // A video is cut on the exact frame (ffmpeg encodes the part again). Audio frames last a
+        // few milliseconds, so copying them is exact already and the MP3 is encoded only once.
+        if !audio_only {
+            a.push("--force-keyframes-at-cuts".into());
+        }
+        // ffmpeg fetches the part and yt-dlp reports nothing until it's done: ffmpeg's own
+        // progress (stdout) is what the list shows.
+        push(&mut a, &["--downloader-args", PART_PROGRESS_ARGS]);
+    }
+    // Subtitles, chapters and SponsorBlock segments are timed to the whole video, and yt-dlp
+    // doesn't shift them to a part (they'd run from the video's start): a part gets none.
+    let whole = section.is_none();
 
-    if !audio_only && (opts.embed_subtitles || opts.write_subtitles) && !opts.sub_langs.is_empty() {
+    if whole
+        && !audio_only
+        && (opts.embed_subtitles || opts.write_subtitles)
+        && !opts.sub_langs.is_empty()
+    {
         push(&mut a, &["--sub-langs", &opts.sub_langs.join(",")]);
         if opts.write_subtitles {
             a.push("--write-subs".into());
@@ -647,7 +691,7 @@ pub fn plan_ytdlp(
     if opts.embed_metadata {
         a.push("--embed-metadata".into());
     }
-    if opts.embed_chapters {
+    if whole && opts.embed_chapters {
         a.push("--embed-chapters".into());
     }
     let cats = if opts.sponsorblock.categories.is_empty() {
@@ -655,7 +699,11 @@ pub fn plan_ytdlp(
     } else {
         opts.sponsorblock.categories.join(",")
     };
-    match opts.sponsorblock.mode {
+    let sponsorblock = match whole {
+        true => opts.sponsorblock.mode,
+        false => SponsorBlockMode::Off,
+    };
+    match sponsorblock {
         SponsorBlockMode::Off => {}
         SponsorBlockMode::Mark => push(&mut a, &["--sponsorblock-mark", &cats]),
         SponsorBlockMode::Remove => push(&mut a, &["--sponsorblock-remove", &cats]),
@@ -698,5 +746,6 @@ pub fn plan_ytdlp(
         output_dir: opts.output_dir.clone(),
         context: ctx.clone(),
         reason,
+        section,
     }
 }

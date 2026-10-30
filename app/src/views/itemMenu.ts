@@ -2,8 +2,10 @@
 
 import { actions } from "../lib/actions";
 import { t } from "../lib/i18n";
+import { GIF_MAX_SECONDS, PRESETS, presetLabel, quickTargets, TARGET_NAMES } from "../lib/media";
 import { canPause, canResume, displayName } from "../lib/present";
 import { useApp } from "../lib/store";
+import { mediaPath, openTools, quickConvert } from "../lib/tools";
 import { type MenuEntry, useUi } from "../lib/ui";
 
 export function itemMenu(ids: string[]): MenuEntry[] {
@@ -34,9 +36,40 @@ export function itemMenu(ids: string[]): MenuEntry[] {
     { label: t("Remove from queue"), disabled: !inQueue, onSelect: () => actions.moveToQueue(ids, null) },
   ];
 
+  // A finished picture, song or video: convert it, or make it smaller for a size limit.
+  const media = mediaPath(one);
+  const tools: MenuEntry[] =
+    media && one
+      ? [
+          { separator: true },
+          {
+            label: t("Convert to"),
+            icon: "convert",
+            submenu: [
+              ...quickTargets(one.fileName)
+                // A GIF only for short clips (when the length is known).
+                .filter((x) => x !== "gif" || (one.media?.duration ?? 0) <= GIF_MAX_SECONDS)
+                .map((x) => ({ label: TARGET_NAMES[x], onSelect: () => void quickConvert(one, x) })),
+              { separator: true },
+              { label: t("More…"), onSelect: () => openTools({ tab: "convert", paths: [media] }) },
+            ],
+          },
+          {
+            label: t("Make smaller"),
+            icon: "shrink",
+            submenu: [
+              ...PRESETS.map((p) => ({ label: presetLabel(p.id), onSelect: () => openTools({ tab: "shrink", paths: [media], preset: p.id }) })),
+              { separator: true },
+              { label: t("Custom size…"), onSelect: () => openTools({ tab: "shrink", paths: [media], preset: "custom" }) },
+            ],
+          },
+        ]
+      : [];
+
   return [
     { label: t("Open"), icon: "open-file", kbd: "Enter", disabled: !done, onSelect: () => one && actions.open(one.id) },
     { label: t("Show in folder"), icon: "folder-open", disabled: !one, onSelect: () => one && actions.reveal(one.id) },
+    ...tools,
     { separator: true },
     { label: t("Resume"), icon: "resume", disabled: !list.some((i) => canResume(i.status) || i.status === "queued"), onSelect: () => actions.resume(ids) },
     { label: t("Pause"), icon: "pause", kbd: "Space", disabled: !list.some((i) => canPause(i.status)), onSelect: () => actions.pause(ids) },

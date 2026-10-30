@@ -243,7 +243,7 @@ pub fn numbered_name(name: &str, n: u32) -> String {
 }
 
 /// Path of the in-progress file for a final path.
-pub(crate) fn part_path_for(final_path: &Path, suffix: &str) -> PathBuf {
+pub fn part_path_for(final_path: &Path, suffix: &str) -> PathBuf {
     let mut s = final_path.as_os_str().to_owned();
     s.push(suffix);
     PathBuf::from(s)
@@ -252,12 +252,7 @@ pub(crate) fn part_path_for(final_path: &Path, suffix: &str) -> PathBuf {
 /// Picks `dir/name`, or `dir/name (1).ext`, … such that neither the final path nor its part
 /// file exists. With `overwrite`, the plain name is used when only the final file exists (it
 /// is replaced on completion). Returns `None` when 10 000 candidates are taken.
-pub(crate) fn unique_path(
-    dir: &Path,
-    name: &str,
-    suffix: &str,
-    overwrite: bool,
-) -> Option<PathBuf> {
+pub fn unique_path(dir: &Path, name: &str, suffix: &str, overwrite: bool) -> Option<PathBuf> {
     for n in 0..10_000u32 {
         let candidate = if n == 0 {
             name.to_string()

@@ -38,6 +38,29 @@
 .authbox .input { flex: 1; }
 .conflict > span { flex: 1; }
 
+/* "What's inside" a ZIP: a disclosure under the file card, its list scrolling on its own. */
+.zipin { display: grid; gap: 7px; min-width: 0; margin-top: -3px; }
+.zipin__head { justify-self: start; max-width: 100%; padding: 2px 4px; margin-inline-start: -4px; border-radius: 6px; }
+.zipin__sum { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.zipin__note { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding-inline-start: 18px; }
+.zipin__note .icon { flex: none; }
+.zipin__list { max-height: 220px; overflow-y: auto; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-subtle); padding: 3px 0; background: var(--surface-base); }
+[data-theme="dark"] .zipin__list { background: rgb(12 13 18 / 0.92); }
+.zipin__rows { position: relative; }
+.zrow { position: absolute; top: 0; inset-inline: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; column-gap: 10px; align-items: center; padding-inline-end: 6px; font-size: 12.5px; }
+.zrow:hover { background: var(--state-hover); }
+.zrow__name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 28px; text-align: start; }
+.zrow__twist { display: grid; place-items: center; width: 14px; flex: none; color: var(--text-tertiary); }
+.zrow__meta { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-tertiary); white-space: nowrap; }
+.zrow__meta .progress { width: 64px; }
+.zrow__cell { display: grid; place-items: center; width: 24px; height: 24px; }
+.zrow__act { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--text-tertiary); }
+.zrow__act:is(button):hover { background: var(--state-hover); color: var(--text-primary); }
+.zrow__act:disabled { opacity: 0.4; }
+.zrow__link { font-size: 11.5px; color: var(--text-link); }
+.zrow__link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.zrow__err { grid-column: 1 / -1; padding-inline-start: 41px; padding-bottom: 6px; margin-top: -3px; font-size: 11.5px; color: var(--danger); }
+
 /* ---- add url ------------------------------------------------------------------- */
 .addurl .wbody { padding-top: 10px; gap: 14px; }
 
@@ -172,12 +195,54 @@
 .dropzone:hover .dropzone__close { opacity: 1; }
 .preview-window:has(.dropzone-frame) { border-radius: 50%; }
 
-/* Video dialog: MP4 / MP3 switch and the collapsible extra options. */
-.vformat { display: flex; justify-content: center; margin: 2px 0 6px; }
-.vformat .segmented { width: 100%; max-width: 360px; }
+/* Video dialog: MP4 / MP3 and whole / part switches and the collapsible extra options. */
+.vformat { display: flex; justify-content: center; gap: 10px; margin: 2px 0 6px; }
+.vformat .segmented { flex: 1; min-width: 0; max-width: 360px; }
 .vformat .segmented__item { flex: 1; justify-content: center; }
 .vmore { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 4px 2px; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer; }
 .vmore:hover { color: var(--text-primary); }
+/* Options a part can't have (timed to the whole video). */
+.video .is-off { opacity: 0.45; }
+.vopt--note { justify-content: flex-start; gap: 8px; min-height: 40px; color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
+.vopt--note .icon { flex: none; color: var(--text-tertiary); }
+/* "Only a part" takes room from a long quality list, which then scrolls inside (keeping about
+   three rows) instead of the whole window. */
+.video .wbody { display: flex; flex-direction: column; }
+.video .wbody > * { flex: none; }
+.video .wbody > .choices--shrink { flex: 0 1 auto; min-height: 118px; overflow-y: auto; }
+
+/* "Only a part": timeline, start / end, chapters. The timeline runs left to right in every
+   language, like the app's other charts. */
+.vpart { display: grid; gap: 10px; padding: 10px 14px 12px; border-radius: 12px; background: var(--control-bg); box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.vtl { position: relative; direction: ltr; height: 30px; margin: 0 7px; touch-action: none; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.vtl.is-dragging { cursor: grabbing; }
+.vtl__track, .vtl__range { position: absolute; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px; }
+.vtl__track { left: -7px; right: -7px; background: var(--track-bg); box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.vtl__range { background: var(--accent-solid); box-shadow: 0 0 12px -2px rgb(var(--accent-rgb) / 0.55); }
+.vtl__mark { position: absolute; top: 50%; width: 2px; height: 12px; margin: -6px 0 0 -1px; border-radius: 1px; background: var(--border-strong); pointer-events: none; }
+.vtl__thumb {
+  position: absolute; top: 50%; width: 14px; height: 22px; margin: -11px 0 0 -7px;
+  border-radius: 6px; background: #fff; cursor: grab;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 0.5px rgb(0 0 0 / 0.12);
+  transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-standard);
+}
+/* A grip line, like a trim handle. */
+.vtl__thumb::after { content: ""; position: absolute; inset: 6px 6px; border-radius: 1px; background: rgb(16 20 40 / 0.22); pointer-events: none; }
+.vtl__thumb:hover, .vtl__thumb.is-dragging { transform: scale(1.08); }
+.vtl__thumb.is-dragging { cursor: grabbing; }
+.vtl__thumb:focus-visible { box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), var(--focus-ring); }
+.vpart__times { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; font-size: 12.5px; }
+.vpart__field { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.vpart__field .input { width: 84px; height: var(--control-h-sm); }
+.vpart__field input { text-align: center; direction: ltr; }
+.vpart__sum { margin-inline-start: auto; color: var(--text-tertiary); white-space: nowrap; }
+.vpart__sum b { font-weight: 500; color: var(--text-primary); }
+.vchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vchip { display: inline-flex; align-items: center; gap: 6px; max-width: 210px; height: 24px; padding: 0 10px; border: 0; border-radius: 12px; background: var(--control-bg); box-shadow: inset 0 0 0 1px var(--border-subtle); color: var(--text-secondary); font: inherit; font-size: 11.5px; cursor: pointer; }
+.vchip:hover { background: var(--state-hover); color: var(--text-primary); }
+.vchip.on { background: rgb(var(--accent-rgb) / 0.14); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.6); color: var(--text-primary); }
+.vchip__at { color: var(--text-tertiary); direction: ltr; }
+.vchip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- Hugging Face models ----------------------------------------------------------- */
 .hfwin .wbody { display: flex; flex-direction: column; gap: 10px; }
@@ -199,3 +264,72 @@
 .hf-have { margin-inline-start: 8px; vertical-align: 1px; }
 .hf-token { display: grid; gap: 8px; padding: 12px 14px; }
 .hf-lmstudio { justify-self: start; }
+
+/* ---- Tools: convert / make smaller ---------------------------------------------------- */
+.toolswin .wbody { display: flex; flex-direction: column; gap: 12px; padding-top: 2px; }
+.tools__tabs { display: flex; justify-content: center; flex: none; }
+.tools__tabs .segmented { width: 100%; max-width: 380px; }
+.tools__tabs .segmented__item { flex: 1; justify-content: center; }
+.tools__fetch { flex: none; padding: 8px 12px; background: rgb(var(--accent-rgb) / 0.08); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.22); font-size: 12.5px; }
+.tools__fetch > .icon { color: var(--accent); }
+.tools__fetch .grow { flex: 1; display: grid; gap: 6px; min-width: 0; }
+.tools__note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The empty file area: one big target to drop on or click. */
+.tdrop { flex: 1 1 150px; min-height: 140px; display: grid; place-items: center; align-content: center; gap: 6px; padding: 16px; border: 0; border-radius: 14px; background: var(--control-bg); box-shadow: inset 0 0 0 1.5px var(--border-subtle); outline-offset: 2px; color: var(--text-primary); font: inherit; text-align: center; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard); }
+.tdrop:hover, .tdrop.is-over { background: rgb(var(--accent-rgb) / 0.07); box-shadow: inset 0 0 0 1.5px rgb(var(--accent-rgb) / 0.55); }
+.tdrop b { font-size: 14px; font-weight: 600; }
+.tdrop .btn { margin-top: 6px; pointer-events: none; }
+.tdrop__icon { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 15px; color: var(--accent); background: rgb(var(--accent-rgb) / 0.12); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.22); margin-bottom: 4px; }
+
+/* Files as cards. */
+.tfiles { flex: 0 1 auto; min-height: 96px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 12px; background: var(--control-bg); box-shadow: inset 0 0 0 1px var(--border-subtle); transition: box-shadow var(--dur-fast) var(--ease-standard); }
+.tfiles.is-over { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tfile { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; min-height: 46px; padding-block: 6px; padding-inline: 8px 6px; border-radius: 9px; }
+.tfile:hover { background: var(--state-hover); }
+.tfile__txt { display: grid; gap: 1px; min-width: 0; }
+.tfile__txt b { font-size: 13px; font-weight: 500; }
+.tfile__txt small { font-size: 11.5px; color: var(--text-tertiary); line-height: 1.35; }
+.tfile__txt small.text-danger { color: var(--danger); }
+.tfile__txt small.text-warning { color: var(--warning); }
+.tfile__txt small.text-success { color: var(--success); }
+.tfile__size { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.tfile .badge { justify-self: end; }
+.tfile.is-reading { grid-template-columns: 32px minmax(0, 1fr); opacity: 0.75; }
+.tfiles > * { flex: none; }
+.tfiles__more { display: flex; align-items: center; gap: 8px; padding: 4px 4px 2px; }
+
+/* What to make: formats or sizes. */
+.tsec { display: grid; gap: 8px; flex: none; }
+.tsec__head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.tsec__head .field__label { margin: 0; }
+.tsec > p { margin: -2px 0 0; }
+.tchoices { display: flex; flex-wrap: wrap; gap: 6px; }
+.tchoice { display: grid; gap: 1px; min-width: 92px; padding: 7px 12px; border: 0; border-radius: 10px; background: var(--control-bg); box-shadow: inset 0 0 0 1px var(--border-subtle); color: var(--text-tertiary); font: inherit; font-size: 11px; line-height: 1.3; text-align: start; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard); }
+.tchoice b { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.tchoice:hover:not(:disabled) { background: var(--state-hover); }
+.tchoice.on { background: rgb(var(--accent-rgb) / 0.12); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tchoice.on > span, .tchoice.on button > span { color: var(--text-secondary); }
+.tchoice:disabled { opacity: 0.45; cursor: default; }
+.tchoice--custom { display: flex; align-items: center; gap: 8px; padding-block: 0; padding-inline: 0 8px; }
+.tchoice--custom > button { display: grid; gap: 1px; padding-block: 7px; padding-inline: 12px 4px; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.tchoice--custom .input { height: 28px; }
+
+/* Jobs, newest first. */
+.tjobs { display: grid; gap: 6px; flex: none; margin-top: auto; }
+.tjobs__list { max-height: 168px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.tjob { flex: none; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 44px; padding-block: 5px; padding-inline: 8px 6px; border-radius: 9px; }
+.tjob:hover { background: var(--state-hover); }
+.tjob__txt { display: grid; gap: 4px; min-width: 0; }
+.tjob__txt b { font-size: 12.5px; font-weight: 500; }
+.tjob__txt small { font-size: 11.5px; color: var(--text-tertiary); }
+.tjob__txt small.text-danger { color: var(--danger); }
+.tjob__icon { color: var(--text-tertiary); }
+.tjob[data-state="running"] .tjob__icon, .tjob[data-state="preparing"] .tjob__icon { color: var(--accent); }
+.tjob[data-state="done"] .tjob__icon { color: var(--success); }
+.tjob[data-state="failed"] .tjob__icon { color: var(--danger); }
+.tjob__actions { display: flex; align-items: center; gap: 4px; }
+
+/* The completion window's quiet Tools buttons. */
+.complete__tools { display: flex; align-items: center; gap: 4px; margin: -8px 22px 12px; }
+.complete__tools .btn { color: var(--text-secondary); }

@@ -1,27 +1,43 @@
-# Prism 1.1.8 — One beam. Many rays.
+# Prism 1.2.0 — One beam. Many rays.
 
 A fast, open-source download manager for Windows, Linux and macOS, with browser integration
 and video downloads.
 
-## What's new in 1.1.8
+## What's new in 1.2.0
 
-* **Lists of links open once**
-  ([#37](https://github.com/FortoGraphy/prism-download-manager/issues/37)). Pasting a list of links
-  (Batch download › Paste a list) could open the *Download links* window twice: one worked, the
-  other froze and couldn't be closed without quitting Prism. Dropped links and copied links could do
-  the same. Each list now opens exactly one window.
-* **Linux: empty windows and memory**
-  ([#36](https://github.com/FortoGraphy/prism-download-manager/issues/36),
-  [#40](https://github.com/FortoGraphy/prism-download-manager/issues/40)).
-  * On KDE Plasma (Wayland), a Prism window brought back from the taskbar could stay empty. Prism
-    now uses WebKit's previous renderer, the known cure for empty WebKit windows there. To go back
-    to the newer one, start Prism with `WEBKIT_DISABLE_DMABUF_RENDERER=0`.
-  * After long downloads Prism gives the memory it no longer needs back to the system.
-* **Hide the Dock icon on the Mac**
-  ([#34](https://github.com/FortoGraphy/prism-download-manager/issues/34)): Settings › General ›
-  *Hide the Dock icon*. While Prism waits in the menu bar it has no Dock icon; when its window is
-  open, the icon is there so Cmd+Tab works. Thanks to mehdiillala for asking!
+* **Convert and make smaller.** A new *Tools* section in the sidebar, *Convert to* and *Make
+  smaller* in a finished download's menu, and two buttons in the *Download complete* window.
+  * **Convert** pictures (also iPhone HEIC photos), music and videos: MP3, WAV, FLAC, M4A, JPG,
+    PNG, WebP, MP4, WebM, GIF for short clips, or just the sound of a video as MP3. Several files
+    at once can also be packed into a ZIP.
+  * **Make smaller** pictures, music and videos to fit Discord (20 MB), e-mail (25 MB), WhatsApp
+    (16 MB) or a size you choose. Before it starts, Prism shows the resulting size, resolution and
+    quality, and says so when a file is too long to look good at that size. The result is checked
+    and made again smaller if it came out too big.
+  * The new file is saved next to the original, which stays as it is. Prism uses its own ffmpeg
+    (downloaded on first use, like for videos).
+* **Just a part of a video.** In the *Download video* window, choose *Only a part* and pick the
+  start and end with the two handles or by typing the times, or click a chapter. Prism downloads
+  only that part, cut exactly, as a video or as MP3.
+* **What's inside a ZIP.** The *Download file* window shows the folders and files in a ZIP before
+  you download it, reading only a few kilobytes from its end. One file can be downloaded on its
+  own, without the rest of the archive.
+* **Finished downloads show as finished**
+  ([#41](https://github.com/FortoGraphy/prism-download-manager/issues/41)): a download that
+  finished while the window was open could still look like it was downloading until the window was
+  opened again. Thanks to nckrkllkc for the report!
+* The sidebar fades out at its bottom edge when there's more below (Grabber, Trash).
+* Cancelling a download and deleting its file is quicker: Prism no longer writes the file to disk
+  first.
 * The Chrome Web Store extension (1.1.0) keeps working as it is; nothing to update there.
+
+### Prism 1.1.8
+
+* Lists of links open once ([#37](https://github.com/FortoGraphy/prism-download-manager/issues/37)),
+  Linux: WebKit's previous renderer against empty windows on KDE Plasma and memory given back after
+  long downloads ([#36](https://github.com/FortoGraphy/prism-download-manager/issues/36),
+  [#40](https://github.com/FortoGraphy/prism-download-manager/issues/40)), and *Hide the Dock icon*
+  on the Mac ([#34](https://github.com/FortoGraphy/prism-download-manager/issues/34)).
 
 ### Prism 1.1.7
 

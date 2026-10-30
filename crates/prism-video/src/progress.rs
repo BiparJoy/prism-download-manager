@@ -2,6 +2,9 @@
 //! the classic `[Merger]` / `[ExtractAudio]` / `[download]` lines) and of
 //! ffmpeg's `-progress pipe:1` key=value stream.
 
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -294,6 +297,8 @@ pub fn parse_clock(s: &str) -> Option<u64> {
 pub struct FfmpegProgress {
     /// Seconds of output written so far.
     pub out_time: f64,
+    /// Bytes of output written so far.
+    pub total_size: Option<u64>,
     pub speed: Option<f64>,
     pub ended: bool,
 }
@@ -319,6 +324,11 @@ impl FfmpegProgress {
                     self.out_time = t;
                 }
             }
+            "total_size" => {
+                if let Ok(n) = v.parse::<u64>() {
+                    self.total_size = Some(n);
+                }
+            }
             "speed" => self.speed = v.trim_end_matches('x').parse().ok(),
             "progress" => {
                 if v == "end" {
@@ -337,6 +347,97 @@ impl FfmpegProgress {
         }
         let d = duration.filter(|d| *d > 0.0)?;
         Some((self.out_time / d * 100.0).clamp(0.0, 100.0))
+    }
+}
+
+/// Progress of a part of a video. yt-dlp has ffmpeg fetch and cut the part and reports nothing
+/// until it is done, so ffmpeg's `-progress` blocks (see [`crate::plan::PART_PROGRESS_ARGS`])
+/// are read instead: the share of the part's time written is the progress. The final size is
+/// unknown until then, so no total is made up: `total` stays empty and `percent` carries it.
+#[derive(Debug)]
+pub struct PartProgress {
+    length: f64,
+    ff: FfmpegProgress,
+    /// Highest percent reported, so the bar never goes back.
+    percent: f64,
+    /// Recent `(time, bytes written)` samples for the speed.
+    samples: VecDeque<(Instant, u64)>,
+}
+
+/// How far back the speed looks.
+const SPEED_WINDOW: Duration = Duration::from_secs(3);
+
+impl PartProgress {
+    /// Progress of a part `length` seconds long.
+    pub fn new(length: f64) -> Self {
+        PartProgress {
+            length: length.max(0.001),
+            ff: FfmpegProgress::default(),
+            percent: 0.0,
+            samples: VecDeque::new(),
+        }
+    }
+
+    /// One `key=value` line of ffmpeg's `-progress` output (`out_time_us=…`, `progress=end`).
+    /// yt-dlp's own lines all start differently (`[download]`, `PRISM {…}`, `ERROR: …`).
+    pub fn is_progress_line(line: &str) -> bool {
+        line.trim().split_once('=').is_some_and(|(k, _)| {
+            !k.is_empty()
+                && k.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        })
+    }
+
+    /// Feed one line; a finished block becomes a progress report.
+    pub fn feed(&mut self, line: &str) -> Option<YtProgress> {
+        self.feed_at(line, Instant::now())
+    }
+
+    pub fn feed_at(&mut self, line: &str, now: Instant) -> Option<YtProgress> {
+        self.ff.feed(line).then(|| self.report(now))
+    }
+
+    fn report(&mut self, now: Instant) -> YtProgress {
+        let done = self.ff.out_time.clamp(0.0, self.length);
+        let percent = match self.ff.ended {
+            true => 100.0,
+            false => (done / self.length * 100.0).min(100.0),
+        };
+        self.percent = self.percent.max(percent);
+        if let Some(bytes) = self.ff.total_size {
+            self.samples.push_back((now, bytes));
+            while self.samples.len() > 2
+                && self
+                    .samples
+                    .get(1)
+                    .is_some_and(|(t, _)| now.duration_since(*t) >= SPEED_WINDOW)
+            {
+                self.samples.pop_front();
+            }
+        }
+        let speed = match (self.samples.front(), self.samples.back()) {
+            (Some((t0, b0)), Some((t1, b1)))
+                if t1.duration_since(*t0) >= Duration::from_millis(500) =>
+            {
+                Some(b1.saturating_sub(*b0) as f64 / t1.duration_since(*t0).as_secs_f64())
+            }
+            _ => None,
+        };
+        // ffmpeg's speed is media seconds per second: the time left follows from it directly.
+        let eta = self
+            .ff
+            .speed
+            .filter(|x| *x > 0.01 && !self.ff.ended)
+            .map(|x| ((self.length - done).max(0.0) / x).ceil() as u64);
+        YtProgress {
+            stage: Stage::Downloading,
+            downloaded: self.ff.total_size,
+            speed,
+            eta,
+            percent: Some(self.percent),
+            status: Some("downloading".into()),
+            ..Default::default()
+        }
     }
 }
 

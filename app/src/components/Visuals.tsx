@@ -31,9 +31,12 @@ export function ProgressBar({ value, state, size, label }: { value: number | nul
 export const FileTile = memo(function FileTile({ item, size = 28, thumbWidth = 44 }: { item: Pick<DownloadItem, "fileName" | "kind" | "category" | "media">; size?: number; thumbWidth?: number }) {
   const thumb = item.media?.thumbnail;
   if (thumb) {
+    // A part of a video lasts as long as the part.
+    const part = item.media?.section;
+    const duration = part ? part.end - part.start : item.media?.duration;
     return (
       <span className="thumb" style={{ width: thumbWidth, height: size, backgroundImage: `url("${thumb}")` }}>
-        {item.media?.duration ? <span className="thumb__dur">{formatClock(item.media.duration)}</span> : null}
+        {duration ? <span className="thumb__dur">{formatClock(duration)}</span> : null}
       </span>
     );
   }

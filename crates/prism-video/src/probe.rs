@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::error::{Result, VideoError};
 use crate::model::{RequestContext, VideoOptions};
 use crate::process::{self, Spawned};
-use crate::progress::{LineEvent, Stage, YtProgress, parse_line};
+use crate::progress::{LineEvent, PartProgress, Stage, YtProgress, parse_line};
 use crate::tools::Tool;
 
 /// Tool locations passed to yt-dlp.
@@ -256,10 +256,13 @@ pub(crate) fn redirect_url(json: &str) -> Option<String> {
     None
 }
 
-/// Run a yt-dlp download job, streaming progress; returns the final file path.
+/// Run a yt-dlp download job, streaming progress; returns the final file path. `part_length`:
+/// the job cuts a part this many seconds long, whose progress comes from ffmpeg
+/// (see [`PartProgress`]).
 pub(crate) async fn run_job(
     ytdlp: &Path,
     args: Vec<String>,
+    part_length: Option<f64>,
     progress: UnboundedSender<YtProgress>,
     cancel: CancellationToken,
 ) -> Result<PathBuf> {
@@ -299,6 +302,7 @@ pub(crate) async fn run_job(
         stage: Stage::Starting,
         ..Default::default()
     });
+    let mut part = part_length.map(PartProgress::new);
     let mut final_path: Option<String> = None;
     let mut errors: Vec<String> = Vec::new();
     let mut tail: Vec<String> = Vec::new();
@@ -311,6 +315,14 @@ pub(crate) async fn run_job(
             }
             line = rx.recv() => {
                 let Some(line) = line else { break };
+                if let Some(part) = part.as_mut()
+                    && PartProgress::is_progress_line(&line)
+                {
+                    if let Some(p) = part.feed(&line) {
+                        let _ = progress.send(p);
+                    }
+                    continue;
+                }
                 match parse_line(&line) {
                     Some(LineEvent::Progress(p)) => { let _ = progress.send(p); }
                     Some(LineEvent::FinalPath(p)) => final_path = Some(p),

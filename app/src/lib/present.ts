@@ -4,6 +4,7 @@ import type { IconName } from "../design/icons/names";
 import { fileExtension, formatBytes, hostOf, percent } from "./format";
 import { t, tk } from "./i18n";
 import type { Category, DownloadItem, Progress, Status } from "./types";
+import { formatRange, ltr } from "./videoPart";
 
 export type Tone = "accent" | "success" | "warning" | "danger" | "info" | "neutral";
 export type ProgressState = "active" | "paused" | "queued" | "completed" | "error";
@@ -61,11 +62,13 @@ export const isUnfinished = (s: Status) => s !== "completed";
 export const canPause = (s: Status) => ["queued", "connecting", "downloading", "retrying", "processing"].includes(s);
 export const canResume = (s: Status) => ["idle", "paused", "failed"].includes(s);
 
-/** Done bytes, total and 0..1 fraction (null when the size is unknown). */
+/** Done bytes, total and 0..1 fraction (null when the size is unknown). A part of a video being
+ *  cut has no size until it's done; its share done comes with the progress instead. */
 export function progressOf(item: DownloadItem, progress?: Progress | null) {
   const done = progress?.downloaded ?? item.downloaded;
-  const total = progress?.size ?? item.size ?? null;
-  const pct = item.status === "completed" ? 100 : percent(done, total);
+  const share = item.status === "completed" ? null : progress?.fraction;
+  const total = share != null ? null : (progress?.size ?? item.size ?? null);
+  const pct = item.status === "completed" ? 100 : share != null ? Math.min(100, Math.max(0, share * 100)) : percent(done, total);
   return { done, total, fraction: pct == null ? null : pct / 100, pct };
 }
 
@@ -153,7 +156,8 @@ export function metaLine(item: DownloadItem, categories: Category[]): string {
   const host = item.media?.site || hostOf(item.finalUrl || item.url) || (item.url.startsWith("magnet:") ? "BitTorrent" : "");
   const quality = item.media?.quality;
   const cat = displayName(categories.find((c) => c.id === item.category)?.name ?? "");
-  return [host, quality || cat].filter(Boolean).join(" · ");
+  const part = item.media?.section ? t("Part {range}", { range: ltr(formatRange(item.media.section)) }) : null;
+  return [host, quality || cat, part].filter(Boolean).join(" · ");
 }
 
 // ---- input helpers ------------------------------------------------------------------

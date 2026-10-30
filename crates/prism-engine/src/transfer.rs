@@ -271,19 +271,20 @@ pub(crate) async fn end_job(
                 Err(e) => (Err(e), state),
             }
         }
-        Ok(Outcome::Stopped(StopReason::Cancel { delete_file })) => {
+        Ok(Outcome::Stopped(StopReason::Cancel { delete_file: true })) => {
+            // Nothing to keep: no flush or fsync of data that is deleted right away.
+            writer.discard().await;
+            let _ = std::fs::remove_file(&paths.part);
+            (Err(EngineError::Cancelled), None)
+        }
+        Ok(Outcome::Stopped(StopReason::Cancel { delete_file: false })) => {
             let state = writer
                 .flush(true)
                 .await
                 .ok()
                 .and_then(|segs| job.build_resume(segs));
             let _ = writer.close().await;
-            if delete_file {
-                let _ = std::fs::remove_file(&paths.part);
-                (Err(EngineError::Cancelled), None)
-            } else {
-                (Err(EngineError::Cancelled), state)
-            }
+            (Err(EngineError::Cancelled), state)
         }
         Err(e) => {
             if e == EngineError::LinkExpired {

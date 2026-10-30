@@ -2,6 +2,7 @@
 // during development, design reviews, marketing screenshots) calls are served by
 // an in-memory demo backend instead.
 
+import type { MediaFile, MediaJob, MediaRequest, ShrinkPlan, ToolsRequest } from "./media";
 import type {
   BatchInfo,
   Bootstrap,
@@ -17,7 +18,10 @@ import type {
   SniffedStream,
   StartMode,
   VideoCapture,
+  ZipFile,
+  VideoSection,
 } from "./types";
+import type { VideoChapter } from "./videoPart";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -99,6 +103,8 @@ export interface VideoDecision {
   mode: StartMode;
   /** Playlists: one video after another (the "One at a time" queue). */
   oneAtATime?: boolean;
+  /** A single video: only this part of it. */
+  section?: VideoSection;
 }
 
 export interface VideoEntry {
@@ -177,6 +183,11 @@ export const api = {
   cancelCapture: (id: string) => invoke<void>("cancel_capture", { id }),
   reprobeCapture: (id: string, username?: string, password?: string) =>
     invoke<void>("reprobe_capture", { id, username, password }),
+  /** The files in a captured ZIP, read from its end. Rejects with a code: `zip:noRanges`, `zip:notZip`, `zip:split`, `zip:tooBig`, `zip:protected`, `zip:changed`, `zip:network`, `zip:damaged`, `zip:server`. */
+  zipContents: (id: string) => invoke<ZipFile[]>("zip_contents", { id }),
+  /** Downloads one file of it into `dir` and returns its path (progress: `zipProgress` events). Also rejects with `zip:disk`, `zip:threat`, `zip:cancelled`. */
+  extractZipFile: (id: string, index: number, dir: string) => invoke<string>("extract_zip_file", { id, index, dir }),
+  cancelZipFile: (id: string, index: number) => invoke<void>("cancel_zip_file", { id, index }),
 
   batchFromPattern: (pattern: string) => invoke<BatchInfo>("batch_from_pattern", { pattern }),
   batchFromText: (text: string) => invoke<BatchInfo>("batch_from_text", { text }),
@@ -202,6 +213,20 @@ export const api = {
   hfPresent: (args: { kind: HfKind; id: string; sha: string; folder: string; files: HfFile[] }) => invoke<HfPresent>("hf_present", { args }),
   /** `mode` null: the "Hugging Face" queue, started. */
   hfAdd: (args: { kind: HfKind; id: string; sha: string; files: HfFile[]; folder: string; mode: StartMode | null }) => invoke<number>("hf_add", { args }),
+  /** Tools: read files (ffmpeg is downloaded first if there's none; `toolsProgress` events). */
+  mediaInspect: (paths: string[]) => invoke<MediaFile[]>("media_inspect", { paths }),
+  /** Tools: the "Make smaller" estimate for each file (no work done). */
+  mediaPlan: (files: MediaFile[], targetBytes: number) => invoke<ShrinkPlan[]>("media_plan", { files, targetBytes }),
+  /** Tools: start jobs (one per file, or one ZIP); they report as `mediaJob` events. */
+  mediaStart: (request: MediaRequest) => invoke<MediaJob[]>("media_start", { request }),
+  mediaCancel: (id: string) => invoke<void>("media_cancel", { id }),
+  mediaJobs: () => invoke<MediaJob[]>("media_jobs"),
+  /** Removes finished jobs; returns the ones left. */
+  mediaClear: () => invoke<MediaJob[]>("media_clear"),
+  /** Opens (or brings forward) the Tools window for a tab, files and a size. */
+  openTools: (request: ToolsRequest) => invoke<void>("open_tools", { request }),
+  openFile: (path: string) => invoke<void>("open_file", { path }),
+  revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   addTorrent: (args: {
     source: TorrentSource;
     name: string;
@@ -226,6 +251,7 @@ export const api = {
   itemDetails: (id: string) => invoke<ItemDetails | null>("item_details", { id }),
   openItem: (id: string) => invoke<void>("open_item", { id }),
   revealItem: (id: string) => invoke<void>("reveal_item", { id }),
+  /** Shows a file selected in its folder. */
   openPath: (path: string) => invoke<void>("open_path", { path }),
   /** A newer Prism release, or null when up to date. */
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
@@ -382,7 +408,7 @@ export interface VideoInfo {
   extractor?: string | null;
   isLive: boolean;
   liveStatus?: string | null;
-  chapters: unknown[];
+  chapters: VideoChapter[];
   subtitles: Record<string, SubtitleTrack | SubtitleTrack[] | unknown>;
   formats: unknown[];
   choices: VideoChoice[];

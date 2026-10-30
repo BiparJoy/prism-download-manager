@@ -8,6 +8,7 @@ use tokio::sync::Semaphore;
 use crate::config::EngineConfig;
 use crate::error::EngineError;
 use crate::hostlimits::{HostLimit, HostLimits};
+use crate::http::remote::RemoteFile;
 use crate::job::{DownloadHandle, JobShared};
 use crate::limiter::RateLimiter;
 use crate::progress::ProbeInfo;
@@ -190,6 +191,13 @@ impl Engine {
                 message: format!("unsupported scheme {s}"),
             }),
         }
+    }
+
+    /// Opens `req` for reading parts of it with range requests, with the download's own
+    /// cookies, headers, authentication and proxy (see [`RemoteFile`]). Nothing is sent yet.
+    /// Only `GET` links over HTTP(S) can be read in parts.
+    pub fn remote_file(&self, req: &DownloadRequest) -> Result<RemoteFile, EngineError> {
+        RemoteFile::new(&self.inner, req)
     }
 
     /// Starts (or with `resume`, continues) an HTTP(S)/FTP(S) download. `extra_limiters` are

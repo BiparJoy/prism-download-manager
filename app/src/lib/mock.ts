@@ -1,6 +1,7 @@
 // In-memory demo backend used when the UI runs outside Tauri (browser dev server,
 // design review, marketing screenshots). It simulates downloads with live progress.
 
+import type { MediaFile, MediaJob, MediaRequest, MediaTarget, ShrinkPlan } from "./media";
 import type {
   BatchInfo,
   FoundFile,
@@ -18,6 +19,7 @@ import type {
   Settings,
   Status,
   VideoCapture,
+  ZipFile,
 } from "./types";
 
 const MB = 1024 * 1024;
@@ -178,7 +180,7 @@ const settings: Settings = {
   huggingFace: { endpoint: "", token: "", folder: "" },
   shortcuts: {},
   // The demo bootstrap version: "What's new" opens with ?sheet=whatsnew, or by itself with ?lastseen=1.0.9 (an update).
-  lastSeenVersion: (typeof location === "undefined" ? null : new URLSearchParams(location.search).get("lastseen")) ?? "1.1.8",
+  lastSeenVersion: (typeof location === "undefined" ? null : new URLSearchParams(location.search).get("lastseen")) ?? "1.2.0",
   onboardingDone: typeof location === "undefined" || !new URLSearchParams(location.search).has("onboarding"),
 };
 
@@ -218,11 +220,23 @@ function makeSegments(item: DownloadItem): SegmentInfo[] {
   return segs;
 }
 
+/** Parts of videos: no size until they're cut, so their progress is a share (`Progress.fraction`). */
+const partSizes: Record<string, number> = {};
+
+/** `1m23s`, as in a part's file name. */
+function partMark(secs: number): string {
+  const s = Math.round(secs);
+  const [h, m, ss] = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60];
+  const two = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}h${two(m)}m${two(ss)}s` : m ? `${m}m${two(ss)}s` : `${ss}s`;
+}
+
 function tick() {
   const progress: Progress[] = [];
   for (const item of Object.values(items)) {
     if (!["downloading", "connecting", "processing"].includes(item.status)) continue;
-    const size = item.size ?? 0;
+    const part = partSizes[item.id];
+    const size = item.size ?? part ?? 0;
     const target = item.kind === "torrent" ? 6.5 * MB : 9 * MB + (item.connections > 8 ? 14 * MB : 0);
     speeds[item.id] = (speeds[item.id] ?? target) * 0.85 + target * (0.7 + Math.random() * 0.6) * 0.15;
     if (item.status === "processing") speeds[item.id] = 0;
@@ -248,8 +262,9 @@ function tick() {
       size: item.size,
       speed,
       etaSecs: speed > 0 ? (size - item.downloaded) / speed : null,
-      connections: segs.filter((s) => s.state === "active").length,
+      connections: part ? 0 : segs.filter((s) => s.state === "active").length,
       detail: item.status === "processing" ? "Muxing video and audio" : null,
+      fraction: part ? item.downloaded / part : undefined,
     });
     // Loop demo items so screenshots always show activity.
     if (item.downloaded >= size) {
@@ -378,7 +393,7 @@ function demoCapture(url: string): CaptureInfo {
     finalUrl: url,
     fileName: name,
     size: 1.84 * GB,
-    mime: "application/x-iso9660-image",
+    mime: /\.zip$/i.test(name) ? "application/zip" : "application/x-iso9660-image",
     resumable: true,
     category: "compressed",
     saveDir: "C:\\Users\\you\\Downloads\\Compressed",
@@ -391,6 +406,30 @@ function demoCapture(url: string): CaptureInfo {
     needsAuth: false,
   };
 }
+
+/** "What's inside" the demo ZIP: a summer's photos and videos in one folder. */
+const demoZip: ZipFile[] = (() => {
+  const files: [string, number, Partial<ZipFile>?][] = [];
+  const photos = (folder: string, first: number, count: number, avg: number) => {
+    for (let i = 0; i < count; i++) files.push([`Summer 2026/${folder}/IMG_${first + i}.jpg`, Math.round((avg + ((i * 37) % 19) / 10 - 0.9) * MB)]);
+  };
+  photos("Lake Bled", 2401, 46, 8.2);
+  photos("Vienna", 3112, 38, 6.4);
+  photos("Edits", 4020, 36, 4.2);
+  files.push(
+    ["Summer 2026/Videos/Bled - boat ride.mp4", 412.6 * MB],
+    ["Summer 2026/Videos/Vienna - Prater at night.mp4", 288.3 * MB],
+    ["Summer 2026/Videos/Vintgar gorge.mp4", 356.9 * MB],
+    ["Summer 2026/Videos/Timelapse - sunset.mp4", 241.2 * MB],
+    ["Summer 2026/Private/passport scan.jpg", 2.4 * MB, { encrypted: true, extractable: false }],
+    ["Summer 2026/Private/tickets.pdf", 0.6 * MB, { encrypted: true, extractable: false }],
+    ["Summer 2026/contact sheet.pdf", 18.4 * MB],
+    ["Summer 2026/README.txt", 1_240],
+  );
+  return files.map(([path, size, extra], index) => ({ index, path, size: Math.round(size), encrypted: false, extractable: true, ...extra }));
+})();
+const demoZipSize = Math.round(demoZip.reduce((s, f) => s + f.size, 0) * 0.97);
+const zipStops = new Set<string>();
 
 const demoVideo: VideoCapture = {
   id: "vid1",
@@ -432,9 +471,176 @@ function details(id: string): ItemDetails | null {
   };
 }
 
+
+// ---- Tools (convert / make smaller / ZIP) ------------------------------------------------
+
+const TOOL_MB = 1_000_000;
+const toolExt = (p: string) => (p.split(".").pop() ?? "").toLowerCase();
+const toolName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+const toolKind = (p: string): MediaFile["kind"] => {
+  const e = toolExt(p);
+  if (["jpg", "jpeg", "png", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff"].includes(e)) return "image";
+  if (["mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma"].includes(e)) return "audio";
+  if (["mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "gif", "ts"].includes(e)) return "video";
+  return "other";
+};
+
+/** A believable file for a demo path (sizes of the demo list's items when it's one of them). */
+function demoMediaFile(path: string): MediaFile {
+  const name = toolName(path);
+  const ext = toolExt(path);
+  const kind = toolKind(path);
+  const item = Object.values(items).find((i) => i.fileName === name);
+  const base: MediaFile = { path, name, size: item?.size ?? 0, kind, ext, hasAudio: false, hasAlpha: false, hasCover: false, tiled: false, targets: [] };
+  if (kind === "video") {
+    const duration = item?.media?.duration ?? (ext === "gif" ? 4 : 214);
+    const tall = /vertical|story|reel/i.test(name);
+    Object.assign(base, {
+      size: base.size || Math.round(duration * 1_150_000),
+      width: tall ? 1080 : /4k|2160/i.test(name) ? 3840 : 1920,
+      height: tall ? 1920 : /4k|2160/i.test(name) ? 2160 : 1080,
+      duration,
+      fps: /60/.test(item?.media?.quality ?? "") ? 60 : 30,
+      videoCodec: ext === "mkv" ? "vp9" : "h264",
+      audioCodec: ext === "gif" ? null : "aac",
+      hasAudio: ext !== "gif",
+      audioKbps: ext === "gif" ? null : 160,
+    });
+    base.videoKbps = Math.round((base.size * 8) / (base.duration ?? 1) / 1000) - (base.audioKbps ?? 0);
+    base.targets = (["mp4", "webm", "gif", "mp3"] as MediaTarget[]).filter((x) => x !== (ext === "m4v" ? "mp4" : ext) && (x !== "mp3" || base.hasAudio));
+  } else if (kind === "audio") {
+    const size = base.size || 9_400_000;
+    Object.assign(base, { size, duration: (size * 8) / 320_000, hasAudio: true, audioCodec: ext, audioKbps: ext === "flac" || ext === "wav" ? null : 320, hasCover: ext === "mp3" });
+    base.targets = (["mp3", "m4a", "wav", "flac", "ogg"] as MediaTarget[]).filter((x) => x !== ext);
+  } else if (kind === "image") {
+    const heic = ext === "heic" || ext === "heif";
+    Object.assign(base, { size: base.size || (ext === "png" ? 14_200_000 : 3_400_000), width: heic ? 3024 : 4032, height: heic ? 4032 : 3024, hasAlpha: ext === "png" && /logo|icon/i.test(name), tiled: heic });
+    base.targets = (["jpg", "png", "webp"] as MediaTarget[]).filter((x) => x !== (ext === "jpeg" ? "jpg" : ext));
+  } else {
+    base.size = base.size || 1_200_000;
+  }
+  return base;
+}
+
+/** A short copy of prism_video::media::shrink::plan, for the demo's estimates. */
+function demoPlan(f: MediaFile, target: number): ShrinkPlan {
+  const plan: ShrinkPlan = { verdict: "ok", ext: f.kind === "video" ? "mp4" : f.kind === "audio" ? (f.ext === "m4a" ? "m4a" : "mp3") : f.hasAlpha ? "webp" : "jpg" };
+  if (f.kind === "other") return { ...plan, ext: f.ext, verdict: "unknown" };
+  if (f.size <= target) return { ...plan, verdict: "alreadySmall", estSize: f.size };
+  const d = f.duration ?? 0;
+  if (f.kind === "video") {
+    const total = (target * 8 * 0.95) / d / 1000;
+    const audio = !f.hasAudio ? 0 : total >= 1500 ? 128 : total >= 600 ? 96 : 64;
+    let video = total - audio;
+    if (video < 150) return { ...plan, verdict: "tooLong" };
+    video = Math.min(video, f.videoKbps ?? video);
+    const rung = video >= 2500 ? 1080 : video >= 1200 ? 720 : video >= 600 ? 480 : 360;
+    const w = f.width ?? 1920;
+    const h = f.height ?? 1080;
+    const short = Math.min(w, h);
+    const to = Math.min(short, rung);
+    const even = (x: number) => Math.max(2, Math.round(x / 2) * 2);
+    const [tw, th] = to < short ? (w >= h ? [even((w * to) / h), to] : [to, even((h * to) / w)]) : [w, h];
+    const fps = video < 1500 && (f.fps ?? 30) > 30.5 ? 30 : Math.min(f.fps ?? 30, 60);
+    const bpp = (video * 1000) / (tw * th * fps);
+    return { ...plan, width: tw, height: th, fps, videoKbps: Math.round(video), audioKbps: audio || null, grade: bpp >= 0.06 ? "good" : bpp >= 0.03 ? "ok" : "low", estSize: Math.min(target, ((video + audio) * 1000 * d * 1.01) / 8) };
+  }
+  if (f.kind === "audio") {
+    const budget = (target * 8 * 0.95) / d / 1000;
+    if (budget < 32) return { ...plan, verdict: "tooLong" };
+    const k = [320, 256, 224, 192, 160, 128, 112, 96, 80, 64, 56, 48, 40, 32].find((r) => r <= budget) ?? 32;
+    return { ...plan, audioKbps: k, grade: k >= 128 ? "good" : k >= 64 ? "ok" : "low", estSize: Math.min(target, (k * 1000 * d) / 8) };
+  }
+  const w = f.width ?? 4032;
+  const h = f.height ?? 3024;
+  const full = w * h * 0.3;
+  const k = Math.min(1, Math.sqrt((target * 0.9) / full));
+  const long = Math.max(w, h);
+  const toLong = Math.round(long * k);
+  if (toLong < Math.min(640, long)) return { ...plan, verdict: "tooLong" };
+  return { ...plan, width: Math.round(w * k), height: Math.round(h * k), grade: toLong >= Math.min(long, 1600) ? "good" : toLong >= 1000 ? "ok" : "low", estSize: Math.min(target, full * k * k) };
+}
+
+const DOWNLOADS = "C:\\Users\\you\\Downloads";
+const mediaJobs: MediaJob[] = [
+  {
+    id: "mj-done",
+    op: { type: "shrink", targetBytes: 25 * TOOL_MB, label: "E-mail" },
+    inputs: [`${DOWNLOADS}\\Music\\podcast-episode-212.mp3`],
+    name: "podcast-episode-212.mp3",
+    output: `${DOWNLOADS}\\Music\\podcast-episode-212 (E-mail).mp3`,
+    state: "done",
+    progress: 1,
+    retrying: false,
+    before: 86 * MB,
+    after: 23_100_000,
+    createdAt: now - 600_000,
+    startedAt: now - 590_000,
+    finishedAt: now - 560_000,
+  },
+  {
+    id: "mj-run",
+    op: { type: "convert", target: "mp4", quality: "standard" },
+    inputs: [`${DOWNLOADS}\\Video\\Sintel (2010) 4K.mkv`],
+    name: "Sintel (2010) 4K.mkv",
+    output: `${DOWNLOADS}\\Video\\Sintel (2010) 4K.mp4`,
+    state: "running",
+    progress: 0.42,
+    retrying: false,
+    before: 2.6 * GB,
+    createdAt: now - 120_000,
+    startedAt: now - 118_000,
+  },
+];
+
+function emitJob(j: MediaJob) {
+  emit({ type: "mediaJob", payload: { ...j } });
+}
+
+// The seeded conversion moves slowly, so the demo always shows one running.
+setInterval(() => {
+  const j = mediaJobs.find((x) => x.id === "mj-run" && x.state === "running");
+  if (!j) return;
+  j.progress = (j.progress ?? 0) >= 0.97 ? 0.12 : (j.progress ?? 0) + 0.004;
+  emitJob(j);
+}, 700);
+
+function runDemoJob(j: MediaJob, estimate: number) {
+  const tick = () => {
+    if (j.state === "cancelled") return;
+    if (mediaJobs.some((x) => x !== j && x.id !== "mj-run" && x.op.type !== "zip" && (x.state === "running" || x.state === "preparing") && x.createdAt < j.createdAt)) {
+      setTimeout(tick, 400);
+      return;
+    }
+    if (j.state === "queued") {
+      Object.assign(j, { state: "preparing", startedAt: Date.now() });
+      emitJob(j);
+      setTimeout(tick, 500);
+      return;
+    }
+    if (j.state === "preparing") {
+      const ext = j.op.type === "convert" ? j.op.target : j.op.type === "zip" ? "zip" : toolExt(j.inputs[0]);
+      const stem = toolName(j.inputs[0]).replace(/\.[^.]+$/, "");
+      const dir = j.inputs[0].slice(0, j.inputs[0].length - toolName(j.inputs[0]).length);
+      const label = j.op.type === "shrink" ? ` (${j.op.label})` : "";
+      Object.assign(j, { state: "running", progress: 0, output: `${dir}${stem}${label}.${j.op.type === "shrink" ? (j.op.targetBytes ? demoPlan(demoMediaFile(j.inputs[0]), j.op.targetBytes).ext : ext) : ext}` });
+      emitJob(j);
+      setTimeout(tick, 250);
+      return;
+    }
+    j.progress = Math.min(1, (j.progress ?? 0) + 0.06);
+    if (j.progress >= 1) Object.assign(j, { state: "done", after: Math.round(estimate), finishedAt: Date.now() });
+    emitJob(j);
+    if (j.state === "running") setTimeout(tick, 250);
+  };
+  setTimeout(tick, 300);
+}
+
+const CONVERT_RATIO: Record<string, number> = { mp3: 0.04, m4a: 0.035, wav: 0.3, flac: 0.15, ogg: 0.03, jpg: 0.6, png: 3, webp: 0.35, mp4: 0.8, webm: 0.6, gif: 1.5 };
+
 const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
   bootstrap: (): Bootstrap => ({
-    version: "1.1.8",
+    version: "1.2.0",
     items: Object.values(items),
     categories,
     queues,
@@ -459,14 +665,17 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
     captures[c.id] = c;
     return c;
   },
-  // Any id works in the demo; the probe "finishes" after a moment (captureUpdated).
+  // Any id works in the demo; the probe "finishes" after a moment (captureUpdated). An id with
+  // "zip" in it is a ZIP ("What's inside"); `zip-<problem>` (e.g. `zip-protected`) can't be listed.
   get_capture: ({ id }) => {
     const key = String(id);
     if (!captures[key]) {
-      const c = { ...demoCapture("https://cdimage.debian.org/debian-cd/current/amd64/iso-dvd/debian-13.1.0-amd64-DVD-1.iso"), id: key, probing: true, size: null, resumable: null };
+      const zip = /zip/i.test(key);
+      const url = zip ? "https://drive.example.com/s/7f2a/photos-2026-summer.zip" : "https://cdimage.debian.org/debian-cd/current/amd64/iso-dvd/debian-13.1.0-amd64-DVD-1.iso";
+      const c = { ...demoCapture(url), id: key, probing: true, size: null, resumable: null, ...(zip ? { category: "compressed", referer: "https://drive.example.com/s/7f2a", pageUrl: null } : {}) };
       captures[key] = c;
       setTimeout(() => {
-        captures[key] = { ...c, probing: false, size: 3.72 * GB, resumable: true };
+        captures[key] = { ...c, probing: false, size: zip ? demoZipSize : 3.72 * GB, resumable: true };
         emit({ type: "captureUpdated", payload: captures[key] });
       }, 700);
     }
@@ -480,6 +689,29 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
   },
   cancel_capture: ({ id }) => void delete captures[String(id)],
   reprobe_capture: () => undefined,
+  zip_contents: async ({ id }) => {
+    await sleep(650);
+    const problem = String(id).match(/zip-(\w+)/)?.[1];
+    if (problem) throw new Error(`zip:${problem}`);
+    return demoZip;
+  },
+  // Files of 4 MB and more take a few seconds and report progress; a folder like
+  // "C:\Program Files" can't be written to.
+  extract_zip_file: async ({ id, index, dir }) => {
+    const f = demoZip.find((z) => z.index === index);
+    if (!f) throw new Error("zip:unsupported");
+    const key = `${String(id)}/${f.index}`;
+    zipStops.delete(key);
+    const steps = f.size >= 4 * MB ? 24 : 2;
+    for (let i = 1; i <= steps; i++) {
+      await sleep(140);
+      if (zipStops.has(key)) throw new Error("zip:cancelled");
+      emit({ type: "zipProgress", payload: { captureId: String(id), index: f.index, done: Math.round((f.size * i) / steps), total: f.size } });
+    }
+    if (/program files/i.test(String(dir))) throw new Error("zip:disk");
+    return `${String(dir).replace(/[\\/]+$/, "")}\\${f.path.split("/").pop()}`;
+  },
+  cancel_zip_file: ({ id, index }) => void zipStops.add(`${String(id)}/${String(index)}`),
   batch_from_pattern: ({ pattern }) => {
     const p = String(pattern);
     const m = p.match(/\[(\d+)-(\d+)\]/);
@@ -518,18 +750,25 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
       duration?: number;
       thumbnail?: string;
       pageUrl: string;
+      section?: { start: number; end: number };
     };
     // The last request, for checks in the demo.
     (globalThis as { __prismLastVideo?: unknown }).__prismLastVideo = d;
     const list = d.entries.length ? d.entries.map((e) => (typeof e === "string" ? { url: e, title: null } : e)) : [{ url: d.pageUrl, title: d.title }];
     const ext = d.choice.kind === "audio" ? "mp3" : (d.options?.container ?? "mp4");
-    list.forEach((e) =>
-      newItem(`${e.title ?? "Video"}.${ext}`, e.url, 400 * MB, d.choice.kind === "audio" ? "music" : "video", {
+    // A part is named like the core names it: "Title (1m23s–2m45s).mp4".
+    const part = d.entries.length ? undefined : d.section;
+    const suffix = part ? ` (${partMark(part.start)}–${partMark(part.end)})` : "";
+    list.forEach((e) => {
+      const item = newItem(`${e.title ?? "Video"}${suffix}.${ext}`, e.url, part ? null : 400 * MB, d.choice.kind === "audio" ? "music" : "video", {
         kind: "video",
-        media: { title: e.title ?? undefined, quality: d.choice.label, site: "youtube.com", duration: d.duration, thumbnail: d.thumbnail },
+        media: { title: e.title ?? undefined, quality: d.choice.label, site: "youtube.com", duration: d.duration, thumbnail: d.thumbnail, section: part ?? null },
+        // A paused cut starts over (as in the core).
+        ...(part ? { resumable: false } : {}),
         ...startStatus(d.mode),
-      }),
-    );
+      });
+      if (part) partSizes[item.id] = Math.max(MB, ((part.end - part.start) / (d.duration || 600)) * 400 * MB);
+    });
     return list.length;
   },
   cancel_video: () => undefined,
@@ -557,6 +796,38 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
     };
   },
   native_material: () => true,
+  media_inspect: async ({ paths }) => {
+    await sleep(350);
+    return (paths as string[]).map(demoMediaFile);
+  },
+  media_plan: ({ files, targetBytes }) => (files as MediaFile[]).map((f) => demoPlan(f, targetBytes as number)),
+  media_jobs: () => mediaJobs.map((j) => ({ ...j })),
+  media_clear: () => {
+    for (let i = mediaJobs.length - 1; i >= 0; i--) if (["done", "failed", "cancelled"].includes(mediaJobs[i].state)) mediaJobs.splice(i, 1);
+    return mediaJobs.map((j) => ({ ...j }));
+  },
+  media_cancel: ({ id }) => {
+    const j = mediaJobs.find((x) => x.id === id);
+    if (j && !["done", "failed", "cancelled"].includes(j.state)) {
+      Object.assign(j, { state: "cancelled", progress: null, finishedAt: Date.now() });
+      emitJob(j);
+    }
+  },
+  media_start: ({ request }) => {
+    const r = request as MediaRequest;
+    const groups = r.op === "zip" ? [r.paths] : r.paths.map((p) => [p]);
+    return groups.map((inputs, k) => {
+      const files = inputs.map(demoMediaFile);
+      const before = files.reduce((s, f) => s + f.size, 0);
+      const op: MediaJob["op"] = r.op === "convert" ? { type: "convert", target: r.target, quality: r.quality ?? "standard" } : r.op === "shrink" ? { type: "shrink", targetBytes: r.targetBytes, label: r.label } : { type: "zip" };
+      const job: MediaJob = { id: `mj-${Date.now()}-${k}`, op, inputs, name: r.op === "zip" ? `${toolName(inputs[0]).replace(/\.[^.]+$/, "")}.zip` : toolName(inputs[0]), state: "queued", progress: null, retrying: false, before, createdAt: Date.now() + k };
+      const estimate = r.op === "shrink" ? (demoPlan(files[0], r.targetBytes).estSize ?? r.targetBytes * 0.9) : r.op === "zip" ? before * 0.97 : before * (CONVERT_RATIO[r.target] ?? 0.5);
+      mediaJobs.push(job);
+      emitJob(job);
+      runDemoJob(job, estimate);
+      return { ...job };
+    });
+  },
   hf_context: () => ({ endpoint: "https://huggingface.co", token: null, folder: "C:\\Users\\demo\\Downloads\\Models", lmStudio: "C:\\Users\\demo\\.lmstudio\\models" }),
   hf_search: async ({ query }) => {
     await sleep(250);
@@ -754,7 +1025,15 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
       webpageUrl: demoVideo.pageUrl,
       extractor: "youtube",
       isLive: false,
-      chapters: [],
+      // Made up, so the demo shows chapters in "Only a part".
+      chapters: [
+        { title: "Opening titles", start: 0, end: 24 },
+        { title: "Morning in the meadow", start: 24, end: 152 },
+        { title: "The three bullies", start: 152, end: 287 },
+        { title: "Bunny’s plan", start: 287, end: 471 },
+        { title: "Payback", start: 471, end: 566 },
+        { title: "Credits", start: 566, end: 635 },
+      ],
       formats: [],
       hasDrm: false,
       subtitles: { en: { name: "English", auto: false }, de: { name: "German", auto: false }, cs: { name: "Czech", auto: true } },
@@ -780,10 +1059,10 @@ const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
   integration_status: () => ({
     hostPath: "C:\\Program Files\\Prism\\prism-native-host.exe",
     extensionConnected: mockExtSeen > 0,
-    extensionVersion: mockExtSeen > 0 ? (demoParam("oldext") ? "1.0.0" : "1.1.8") : null,
+    extensionVersion: mockExtSeen > 0 ? (demoParam("oldext") ? "1.0.0" : "1.2.0") : null,
     extensionInstallType: mockExtSeen > 0 ? (demoParam("exttype") ?? (mockExtFromStore ? "normal" : "development")) : null,
     extensionOutdated: mockExtSeen > 0 && !!demoParam("oldext") && !["normal", "admin"].includes(demoParam("exttype") ?? ""),
-    appVersion: "1.1.8",
+    appVersion: "1.2.0",
     lastSeen: mockExtSeen || null,
     browsers: (
       [

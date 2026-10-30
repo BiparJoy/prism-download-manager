@@ -15,11 +15,13 @@
 pub mod choices;
 pub mod error;
 pub mod ffmpeg;
+pub mod media;
 pub mod model;
 pub mod plan;
 pub mod probe;
 mod process;
 pub mod progress;
+pub mod section;
 pub mod sponsorblock;
 pub mod template;
 pub mod tools;
@@ -33,7 +35,8 @@ pub use ffmpeg::{
 };
 pub use model::*;
 pub use plan::{AcceleratedPlan, Plan, StreamRole, StreamSpec, YtDlpJob};
-pub use progress::{Stage, YtProgress};
+pub use progress::{PartProgress, Stage, YtProgress};
+pub use section::Section;
 pub use tokio_util::sync::CancellationToken;
 pub use tools::{Tool, ToolInfo, ToolPhase, ToolProgress, ToolSource, ToolStatus, UpdateOutcome};
 
@@ -463,9 +466,72 @@ impl VideoService {
         }
         let cookie_file = probe::write_cookie_file(&job.url, &job.context)?;
         let args = self.command_line_with(job, cookie_file.as_ref().map(|f| f.0.as_path()), opts);
-        let res = probe::run_job(&ytdlp, args, progress, cancel).await;
+        let part = job.section.map(|s| s.length());
+        let res = probe::run_job(&ytdlp, args, part, progress, cancel).await;
         drop(cookie_file);
         res
+    }
+
+    // ------------------------------------------------------------------ media tools
+
+    /// ffmpeg + ffprobe for the Tools (convert, make smaller): any copy that's there (custom,
+    /// managed or the system's), else the managed one is downloaded now.
+    pub async fn ensure_ffmpeg(&self, progress: impl Fn(ToolProgress) + Send + Sync) -> Result<()> {
+        let _guard = self.inner.install_lock.lock().await;
+        let o = self.options();
+        let d = self.inner.tools_dir.clone();
+        if tools::resolve(Tool::Ffmpeg, &d, &o).0.is_some()
+            && tools::resolve(Tool::Ffprobe, &d, &o).0.is_some()
+        {
+            return Ok(());
+        }
+        let http = self.http()?;
+        tools::install_ffmpeg(&http, &d, &progress).await
+    }
+
+    /// Whether ffmpeg and ffprobe are there (no download needed before a tool runs).
+    pub fn ffmpeg_ready(&self) -> bool {
+        let o = self.options();
+        let d = &self.inner.tools_dir;
+        tools::resolve(Tool::Ffmpeg, d, &o).0.is_some()
+            && tools::resolve(Tool::Ffprobe, d, &o).0.is_some()
+    }
+
+    /// Read a file for the Tools (see [`media::MediaInfo`]).
+    pub async fn media_inspect(&self, path: &Path) -> Result<media::MediaInfo> {
+        let ffprobe = self.require(Tool::Ffprobe)?;
+        media::probe::inspect(&ffprobe, path).await
+    }
+
+    /// Convert `info` into `target`, written to `out` (or the next free name next to it).
+    pub async fn media_convert(
+        &self,
+        info: &media::MediaInfo,
+        target: media::Target,
+        quality: media::Quality,
+        out: &Path,
+        progress: media::ProgressFn<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<PathBuf> {
+        let ffmpeg = self.require(Tool::Ffmpeg)?;
+        let flat = media::decode_tiles(&ffmpeg, info, cancel).await?;
+        let info = flat.as_ref().map_or(info, |(i, _)| i);
+        media::convert::convert(&ffmpeg, info, target, quality, out, progress, cancel).await
+    }
+
+    /// Make `info` smaller than `target` bytes, written to `out` (extension from the plan).
+    pub async fn media_shrink(
+        &self,
+        info: &media::MediaInfo,
+        target: u64,
+        out: &Path,
+        progress: media::ProgressFn<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<media::ShrinkOutcome> {
+        let ffmpeg = self.require(Tool::Ffmpeg)?;
+        let flat = media::decode_tiles(&ffmpeg, info, cancel).await?;
+        let info = flat.as_ref().map_or(info, |(i, _)| i);
+        media::shrink::shrink(&ffmpeg, info, target, out, progress, cancel).await
     }
 
     /// ffmpeg mux / convert / embed for the accelerated path. Progress is optional.

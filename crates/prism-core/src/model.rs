@@ -183,6 +183,8 @@ pub struct MediaInfo {
     pub page_url: Option<String>,
     /// 1-based position in the playlist it was picked from.
     pub playlist_index: Option<u32>,
+    /// Only this part of the video is downloaded.
+    pub section: Option<prism_video::Section>,
 }
 
 /// Live, non-persisted progress of a running item (sent ~4×/s to the UI).
@@ -198,6 +200,10 @@ pub struct Progress {
     pub connections: u32,
     /// Human-readable detail: "Muxing", "Retrying in 4 s", ...
     pub detail: Option<String>,
+    /// Share done (0–1) when the size isn't known until the end (a part of a video, cut by
+    /// ffmpeg): the bar follows it instead of `downloaded / size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fraction: Option<f64>,
 }
 
 /// Segment layout for the details window visualization.

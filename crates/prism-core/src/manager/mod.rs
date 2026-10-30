@@ -9,6 +9,7 @@
 mod capture;
 mod grab;
 mod jobs;
+mod peek;
 mod queues;
 
 pub use capture::{
@@ -17,6 +18,7 @@ pub use capture::{
 };
 pub use jobs::ItemDetails;
 pub(crate) use jobs::{engine_config, http_preference, proxy_config};
+pub use peek::{PeekProblem, ZipFile};
 
 use crate::categories;
 use crate::db::Db;
@@ -133,6 +135,8 @@ pub(crate) struct Inner {
     /// `extension-version` (version, then install type on a second line).
     pub ext_version: Mutex<Option<String>>,
     pub ext_install_type: Mutex<Option<String>>,
+    /// The Tools' jobs (convert, make smaller, ZIP).
+    pub media: crate::media::MediaJobs,
 }
 
 /// Cheap, cloneable handle to the application core.
@@ -238,6 +242,7 @@ impl Core {
             probe_locks: Mutex::new(HashMap::new()),
             ext_version: Mutex::new(ext_version),
             ext_install_type: Mutex::new(ext_install_type),
+            media: Default::default(),
         }));
         core.apply_runtime_settings();
         core.spawn_background(outcome_rx);
@@ -840,8 +845,11 @@ impl Core {
     }
 
     fn progress_tick(&self, sample_history: bool) {
+        // Sent while the state is locked: a job that finishes meanwhile (handle_outcome takes the
+        // same lock to remove it) announces its end only after this progress, never before it
+        // (#41: late progress kept a finished row "downloading").
+        let mut st = self.0.state.lock();
         let progress: Vec<Progress> = {
-            let mut st = self.0.state.lock();
             let mut out = Vec::new();
             let ids: Vec<String> = st.jobs.keys().cloned().collect();
             for id in ids {
@@ -873,6 +881,7 @@ impl Core {
         if !progress.is_empty() {
             self.emit(CoreEvent::Progress(progress));
         }
+        drop(st);
     }
 
     /// Persist resume state of running jobs. Each job's checkpoint flushes and fsyncs its

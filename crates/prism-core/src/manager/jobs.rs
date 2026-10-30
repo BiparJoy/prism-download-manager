@@ -97,6 +97,7 @@ impl Job {
                     eta_secs: s.eta.map(|d| d.as_secs()),
                     connections: s.active_connections,
                     detail,
+                    fraction: None,
                 }
             }
             Job::Video(j) => j.progress(item),
@@ -460,13 +461,23 @@ pub(crate) struct ProbeFailure {
     pub browser_only: bool,
 }
 
+/// The request a capture's link is tried with (and its "What's inside" read): the link's own
+/// headers, cookies, referer, user agent and credentials, with the proxy and HTTP version from
+/// the settings. `None` for an address that isn't one.
+pub(crate) fn capture_request(n: &NewItem, settings: &Settings) -> Option<DownloadRequest> {
+    let mut req: DownloadRequest = serde_json::from_value(request_json(n, settings)).ok()?;
+    req.proxy = Some(proxy_config(settings));
+    req.http = http_preference(settings);
+    crate::huggingface::authorize(&mut req, settings);
+    Some(req)
+}
+
 pub(crate) async fn probe(
     core: &Core,
     n: &NewItem,
     settings: &Settings,
 ) -> std::result::Result<ProbeResult, ProbeFailure> {
-    let value = request_json(n, settings);
-    let mut req: DownloadRequest = serde_json::from_value(value).map_err(|_| ProbeFailure {
+    let mut req = capture_request(n, settings).ok_or_else(|| ProbeFailure {
         message: "Invalid address".into(),
         needs_auth: false,
         browser_only: false,
@@ -475,9 +486,6 @@ pub(crate) async fn probe(
         .file_name
         .as_deref()
         .is_some_and(crate::categories::is_binary_file_name);
-    req.proxy = Some(proxy_config(settings));
-    req.http = http_preference(settings);
-    crate::huggingface::authorize(&mut req, settings);
     match tokio::time::timeout(Duration::from_secs(20), core.0.engine.probe(&req)).await {
         Ok(Ok(p)) => Ok(ProbeResult {
             final_url: p.final_url.to_string(),
@@ -688,6 +696,8 @@ struct VideoState {
     detail: Option<String>,
     downloaded: u64,
     total: Option<u64>,
+    /// Share done while the total isn't known (a part of a video).
+    fraction: Option<f64>,
     speed: u64,
     eta: Option<u64>,
 }
@@ -781,15 +791,18 @@ impl VideoJob {
                 .filter(|_| speed > 0)
                 .map(|t| t.saturating_sub(downloaded) / speed.max(1))
         };
+        // A part cut by ffmpeg has no size until it's done (not an earlier attempt's either).
+        let fraction = st.fraction.filter(|_| handles.is_empty());
         Progress {
             id: item.id.clone(),
             status: st.status,
             downloaded,
-            size: total.or(item.size),
+            size: total.or(item.size).filter(|_| fraction.is_none()),
             speed,
             eta_secs: eta,
             connections: conns,
             detail: st.detail.clone(),
+            fraction,
         }
     }
 
@@ -892,6 +905,12 @@ impl VideoJob {
         let item = &renamed;
 
         let opts = output_options(&spec, item, &settings);
+        // The video got shorter since the part was picked: don't save the whole one under its name.
+        if let (Some(s), Some(d)) = (opts.section, info.duration)
+            && s.start + prism_video::section::MIN_LENGTH > d
+        {
+            return Err(anyhow!("The chosen part starts after the end of the video"));
+        }
         let stored_choice: Option<Choice> = spec
             .get("choice")
             .cloned()
@@ -1062,6 +1081,11 @@ impl VideoJob {
                 if p.total.is_some() {
                     s.total = p.total;
                 }
+                // Without a size (a part cut by ffmpeg) the reported share is the progress.
+                s.fraction = match p.total {
+                    Some(_) => None,
+                    None => p.percent.map(|v| (v / 100.0).clamp(0.0, 1.0)),
+                };
                 s.speed = p.speed.unwrap_or(0.0).max(0.0) as u64;
                 s.eta = p.eta;
             }
@@ -1153,6 +1177,11 @@ fn output_options(
         }
         o.output_dir = item.save_dir.clone();
     }
+    // Only a part of the video (picked in the video dialog; kept with the job for retries).
+    o.section = spec
+        .get("section")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok());
     // Name the output after the list entry so both stay in sync.
     let stem = Path::new(&item.file_name)
         .file_stem()
@@ -1261,6 +1290,7 @@ impl TorrentJob {
                     }
                     _ => format!("{} peers", p.peers),
                 }),
+                fraction: None,
             },
             None => Progress {
                 id: item.id.clone(),

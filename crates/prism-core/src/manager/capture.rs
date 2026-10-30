@@ -56,6 +56,9 @@ pub struct NewItem {
 pub(crate) struct PendingCapture {
     pub info: CaptureInfo,
     pub item: NewItem,
+    /// "What's inside" a ZIP: its files once listed, and the files downloaded on their own,
+    /// which stop when the capture goes away.
+    pub peek: super::peek::PeekSlot,
 }
 
 /// The user's answer in the "Download File" dialog.
@@ -106,6 +109,8 @@ pub struct VideoDecision {
     pub context: Option<serde_json::Value>,
     /// Playlists: download the entries one after another (the "One at a time" queue).
     pub one_at_a_time: bool,
+    /// A single video: only this part of it ("from 1:23 to 2:45").
+    pub section: Option<prism_video::Section>,
 }
 
 /// One playlist entry picked in the video dialog. A plain URL string is accepted too.
@@ -278,7 +283,8 @@ impl Core {
             added_at: now_ms(),
             last_try_at: None,
             finished_at: None,
-            resumable: None,
+            // yt-dlp's ffmpeg doesn't continue a cut: a paused part of a video starts over.
+            resumable: n.media.as_ref().and_then(|m| m.section).map(|_| false),
             connections: settings.downloads.default_connections,
             speed_limit: 0,
             checksum: n.checksum.clone(),
@@ -427,6 +433,7 @@ impl Core {
             PendingCapture {
                 info: info.clone(),
                 item: n,
+                peek: Default::default(),
             },
         );
         self.emit(CoreEvent::CaptureRequested(info.clone()));
@@ -513,6 +520,8 @@ impl Core {
             if username.is_some() {
                 p.item.username = username;
                 p.item.password = password;
+                // Listed again with the new credentials.
+                p.peek.forget_listing();
             }
             p.info.probing = true;
             p.info.probe_error = None;
@@ -744,6 +753,7 @@ impl Core {
                 .and_then(|u| u.host_str().map(String::from)),
             page_url: Some(url.clone()),
             playlist_index: None,
+            section: None,
         };
         let title = media.title.clone().unwrap_or_else(|| "Video".into());
         let ext = jobs::video_ext(choice, options, settings);
@@ -825,6 +835,9 @@ impl Core {
                 d.thumbnail.clone(),
                 d.duration,
             );
+            if let Some(part) = d.section.and_then(|s| s.part_of(d.duration)) {
+                only_part(&mut n, part);
+            }
             n.save_dir = d.save_dir.clone();
             vec![n]
         };
@@ -1780,6 +1793,29 @@ mod tests {
 /// `01 - Name.mkv`: a playlist video's file name with its position, `width` digits at least.
 pub(crate) fn numbered_name(name: &str, index: u32, width: usize) -> String {
     format!("{index:0width$} - {name}")
+}
+
+/// Makes a video item download only `part`: the job keeps the range (retries and resumes cut the
+/// same part), the list shows it, and the file is named apart from the whole video:
+/// `Title [id] (1m23s–2m45s).mp4`.
+pub(crate) fn only_part(n: &mut NewItem, part: prism_video::Section) {
+    if let Some(name) = n.file_name.as_mut() {
+        let path = std::path::Path::new(name.as_str());
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        *name = match path.extension() {
+            Some(ext) => format!("{stem}{}.{}", part.file_suffix(), ext.to_string_lossy()),
+            None => format!("{stem}{}", part.file_suffix()),
+        };
+    }
+    if let Some(req) = n.request.as_mut().and_then(|r| r.as_object_mut()) {
+        req.insert("section".into(), serde_json::json!(part));
+    }
+    if let Some(m) = n.media.as_mut() {
+        m.section = Some(part);
+    }
 }
 
 pub(crate) fn render_name_template(template: &str, title: &str, id: Option<&str>) -> String {

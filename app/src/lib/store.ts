@@ -106,13 +106,19 @@ export const useApp = create<AppState>((set, get) => ({
   },
 }));
 
-function handleEvent(e: CoreEvent) {
+export function handleEvent(e: CoreEvent) {
   const st = useApp.getState();
   switch (e.type) {
     case "itemsAdded": {
+      // Also the whole list again after the window missed events (see main.rs): live progress
+      // of a download that has stopped meanwhile goes.
       const items = { ...st.items };
-      for (const i of e.payload) items[i.id] = i;
-      useApp.setState({ items });
+      const progress = { ...st.progress };
+      for (const i of e.payload) {
+        items[i.id] = i;
+        if (!isActive(i.status)) delete progress[i.id];
+      }
+      useApp.setState({ items, progress });
       break;
     }
     case "itemUpdated": {
@@ -139,8 +145,14 @@ function handleEvent(e: CoreEvent) {
       break;
     }
     case "progress": {
+      // #41: progress that arrives after its download finished would keep the row "downloading"
+      // until the window is opened again. A download that starts again always reports an active
+      // status (itemUpdated) before its first progress, so a stopped item's progress is stale.
       const progress = { ...st.progress };
-      for (const p of e.payload) progress[p.id] = p;
+      for (const p of e.payload) {
+        const item = st.items[p.id];
+        if (!item || isActive(item.status)) progress[p.id] = p;
+      }
       useApp.setState({ progress });
       break;
     }
@@ -254,7 +266,7 @@ export function visibleItems(st: AppState): DownloadItem[] {
       case "status":
         return i.status;
       case "progress":
-        return i.size ? (prog[i.id]?.downloaded ?? i.downloaded) / i.size : i.status === "completed" ? 1 : 0;
+        return prog[i.id]?.fraction ?? (i.size ? (prog[i.id]?.downloaded ?? i.downloaded) / i.size : i.status === "completed" ? 1 : 0);
       case "speed":
         return prog[i.id]?.speed ?? 0;
       case "eta":

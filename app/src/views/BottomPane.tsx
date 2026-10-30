@@ -4,7 +4,7 @@ import { useItemDetails } from "../components/useItemDetails";
 import { ConnectionLanes, FileMap, SpeedChart } from "../components/Visuals";
 import { Icon } from "../design/icons";
 import { actions } from "../lib/actions";
-import { formatBytes, formatDate, formatDuration, formatSpeed } from "../lib/format";
+import { formatBytes, formatClock, formatDate, formatDuration, formatSpeed } from "../lib/format";
 import { t, tk } from "../lib/i18n";
 import { fullPath } from "../lib/paths";
 import { progressOf, statusView } from "../lib/present";
@@ -12,6 +12,7 @@ import { Ring } from "../lib/ring";
 import { useApp } from "../lib/store";
 import type { ItemDetails } from "../lib/types";
 import { useUi } from "../lib/ui";
+import { formatRange, ltr } from "../lib/videoPart";
 import { copyText } from "../lib/win";
 
 const TABS = [
@@ -144,6 +145,9 @@ function InfoTab({ id }: { id: string }) {
     [t("Address"), item.url, item.url],
     ...(item.finalUrl && item.finalUrl !== item.url ? ([[t("Final address"), item.finalUrl, item.finalUrl]] as [string, ReactNode, string][]) : []),
     [t("Saved to"), fullPath(item.saveDir, item.fileName), fullPath(item.saveDir, item.fileName)],
+    ...(item.media?.section
+      ? ([[t("Part of the video"), `${ltr(formatRange(item.media.section))} · ${formatClock(item.media.section.end - item.media.section.start)}`]] as [string, ReactNode][])
+      : []),
     [t("Status"), statusView(item, progress).detail],
     [t("Size"), t("{done} of {total}", { done: formatBytes(p.done), total: formatBytes(p.total) })],
     [t("Resume"), item.resumable === false ? t("Not supported — restarts from zero") : item.resumable ? t("Supported") : t("Unknown")],

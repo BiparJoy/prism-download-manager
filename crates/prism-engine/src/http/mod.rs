@@ -4,6 +4,7 @@ pub(crate) mod auth;
 pub(crate) mod client;
 pub(crate) mod download;
 pub(crate) mod fetcher;
+pub(crate) mod remote;
 
 use std::sync::Arc;
 use std::sync::Mutex;

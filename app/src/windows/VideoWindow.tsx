@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Checkbox, Segmented, Switch, TextField } from "../components/Controls";
 import { openMenuAt } from "../components/MenuHost";
+import { PartPicker } from "../components/PartPicker";
 import { WindowFrame } from "../components/WindowFrame";
 import { Icon } from "../design/icons";
 import { api, type PlaylistEntry, type VideoChoice, type VideoProbe } from "../lib/api";
@@ -8,8 +9,9 @@ import { formatBytes, formatClock, hostOf } from "../lib/format";
 import { t, tk } from "../lib/i18n";
 import { useApp } from "../lib/store";
 import { displayName } from "../lib/present";
-import type { SniffedStream, StartMode, VideoCapture } from "../lib/types";
+import type { SniffedStream, StartMode, VideoCapture, VideoSection } from "../lib/types";
 import { attempt, toast } from "../lib/ui";
+import { MIN_PART, defaultRange, formatRange, isWhole, ltr, partSize, timelineLength } from "../lib/videoPart";
 import { pickFolder, win } from "../lib/win";
 
 type Sponsor = "off" | "mark" | "remove";
@@ -34,6 +36,7 @@ export const PLAYLIST_CHOICES: VideoChoice[] = [
 ];
 
 type Format = "mp4" | "mp3";
+type Extent = "whole" | "part";
 
 /** The simple model: MP4 at a chosen quality, or MP3 audio only. */
 function splitChoices(all: VideoChoice[]): { video: VideoChoice[]; mp3: VideoChoice | undefined } {
@@ -62,10 +65,12 @@ export default function VideoWindow({ id }: { id: string }) {
   const [langs, setLangs] = useState(settings?.video.subtitleLangs ?? "en.*");
   const [thumb, setThumb] = useState(settings?.video.embedThumbnail ?? true);
   const [meta, setMeta] = useState(settings?.video.embedMetadata ?? true);
-  const [chapters, setChapters] = useState(settings?.video.embedChapters ?? true);
+  const [embedChapters, setEmbedChapters] = useState(settings?.video.embedChapters ?? true);
   const [sponsor, setSponsor] = useState<Sponsor>(settings?.video.sponsorblock ?? "off");
   const [dir, setDir] = useState("");
   const [oneByOne, setOneByOne] = useState(false);
+  const [extent, setExtent] = useState<Extent>("whole");
+  const [range, setRange] = useState<VideoSection | null>(null);
   const [busy, setBusy] = useState(false);
   // The container set in Settings › Video & streams (MP4, MKV or WebM).
   const container = (["mp4", "mkv", "webm"] as const).find((c) => c === settings?.video.container) ?? "mp4";
@@ -101,10 +106,33 @@ export default function VideoWindow({ id }: { id: string }) {
   // The English fallback goes to the core; only the shown one is translated.
   const title = named ?? "Video";
 
+  // "Only a part": a single video of known length that isn't live.
+  const info = probe?.kind === "video" ? probe : null;
+  const live = !!info && (info.isLive || ["is_live", "is_upcoming", "post_live"].includes(info.liveStatus ?? ""));
+  const total = info?.duration && !live ? timelineLength(info.duration) : 0;
+  const canCut = total > MIN_PART;
+  const chapters = useMemo(() => (info?.chapters ?? []).filter((c) => c.end > c.start), [info]);
+  const cutting = canCut && extent === "part" && range != null;
+  // Everything selected is the whole video: a normal download.
+  const section = cutting && !isWhole(range, total) ? range : null;
+  const pickExtent = (v: Extent) => {
+    setExtent(v);
+    if (v === "part" && !range) setRange(defaultRange(total, chapters));
+  };
+  // The part panel makes the quality list scroll: keep the picked quality in sight.
+  const qualities = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = qualities.current;
+    const row = list?.querySelector(".qopt.on")?.getBoundingClientRect();
+    const box = list?.getBoundingClientRect();
+    if (!list || !row || !box) return;
+    if (row.bottom > box.bottom) list.scrollTop += row.bottom - box.bottom + 4;
+    else if (row.top < box.top) list.scrollTop -= box.top - row.top + 4;
+  }, [cutting, picked?.id, probe]);
+
   const confirm = async (mode: StartMode) => {
     if (!cap || !picked) return;
     setBusy(true);
-    const info = probe?.kind === "video" ? probe : null;
     const n = await attempt(
       api.confirmVideo({
         captureId: cap.id,
@@ -117,7 +145,7 @@ export default function VideoWindow({ id }: { id: string }) {
           subLangs: langs.split(/[\s,]+/).filter(Boolean),
           embedThumbnail: thumb,
           embedMetadata: meta,
-          embedChapters: chapters,
+          embedChapters,
           sponsorblock: { mode: sponsor, categories: ["sponsor", "selfpromo", "interaction"] },
         },
         saveDir: dir || undefined,
@@ -129,6 +157,7 @@ export default function VideoWindow({ id }: { id: string }) {
             ? probe.entries.flatMap((e, i) => (entries.has(e.url) ? [{ url: e.url, title: e.title ?? null, index: i + 1 }] : []))
             : [],
         oneAtATime: probe?.kind === "playlist" && oneByOne,
+        section: section ?? undefined,
         mode,
       }),
       t("Could not add the video"),
@@ -196,11 +225,23 @@ export default function VideoWindow({ id }: { id: string }) {
                 { value: "mp3", label: t("MP3 audio") },
               ]}
             />
+            {canCut && (
+              <Segmented<Extent>
+                label={t("Part of the video")}
+                value={extent}
+                onChange={pickExtent}
+                options={[
+                  { value: "whole", label: t("Whole video") },
+                  { value: "part", label: t("Only a part") },
+                ]}
+              />
+            )}
           </div>
         )}
+        {cutting && <PartPicker total={total} chapters={chapters} value={range} onChange={setRange} size={partSize(picked?.estSize, range, info?.duration ?? total)} />}
 
         {probe && format === "mp4" && (
-          <div className="choices" role="radiogroup" aria-label={t("Quality")}>
+          <div ref={qualities} className={`choices${cutting && video.length > 2 ? " choices--shrink" : ""}`} role="radiogroup" aria-label={t("Quality")}>
             <div className="qsec">{probe.kind === "playlist" ? t("Quality for every video") : t("Quality")}</div>
             {video.map((c) => (
               <ChoiceRow key={c.id} c={c} on={c.id === picked?.id} onPick={() => setChoice(c.id)} />
@@ -235,7 +276,13 @@ export default function VideoWindow({ id }: { id: string }) {
 
         {probe && more && (
           <div className="vopts">
-            <div className="vopt">
+            {section && (
+              <div className="vopt vopt--note">
+                <Icon name="info" size={15} />
+                <span>{t("A part is saved without subtitles, chapters and SponsorBlock — they follow the whole video’s timing.")}</span>
+              </div>
+            )}
+            <div className={`vopt${section ? " is-off" : ""}`} inert={!!section}>
               <span>
                 <Icon name="subtitle" size={15} /> {t("Subtitles")} {subLangs.length ? <em>({subLangs.slice(0, 6).join(", ")})</em> : null}
               </span>
@@ -255,12 +302,14 @@ export default function VideoWindow({ id }: { id: string }) {
                 <Checkbox checked={meta} onChange={setMeta}>
                   {t("Metadata")}
                 </Checkbox>
-                <Checkbox checked={chapters} onChange={setChapters}>
-                  {t("Chapters")}
-                </Checkbox>
+                <span className={section ? "is-off" : undefined} inert={!!section}>
+                  <Checkbox checked={embedChapters} onChange={setEmbedChapters}>
+                    {t("Chapters")}
+                  </Checkbox>
+                </span>
               </div>
             </div>
-            <div className="vopt">
+            <div className={`vopt${section ? " is-off" : ""}`} inert={!!section}>
               <span>SponsorBlock</span>
               <Segmented<Sponsor>
                 size="sm"
@@ -304,16 +353,23 @@ export default function VideoWindow({ id }: { id: string }) {
             ? format === "mp3"
               ? t("Download {number} as MP3", { number: entries.size })
               : t("Download {count} videos", { count: entries.size })
-            : format === "mp3"
-              ? t("Download MP3")
-              : picked
-                ? t("Download {quality} {format}", { quality: t(picked.label).split(" · ")[0], format: containerName })
-                : t("Download")}
+            : section
+              ? format === "mp3"
+                ? t("Download {range} · {format}", { range: ltr(formatRange(section)), format: "MP3" })
+                : t("Download {range} · {quality} {format}", { range: ltr(formatRange(section)), quality: quality(picked), format: containerName })
+              : format === "mp3"
+                ? t("Download MP3")
+                : picked
+                  ? t("Download {quality} {format}", { quality: quality(picked), format: containerName })
+                  : t("Download")}
         </button>
       </footer>
     </WindowFrame>
   );
 }
+
+/** `1080p60` from `1080p60 · H.264`. */
+const quality = (c: VideoChoice | undefined) => (c ? t(c.label).split(" · ")[0] : "");
 
 function ChoiceRow({ c, on, onPick }: { c: VideoChoice; on: boolean; onPick: () => void }) {
   return (

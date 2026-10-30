@@ -9,8 +9,8 @@ use std::sync::Mutex;
 
 use futures_util::StreamExt;
 use prism_video::{
-    CancellationToken, ChoiceKind, OutputOptions, Plan, Probe, RequestContext, Stage, StreamSpec,
-    Tool, ToolSource, UpdateOutcome, VideoInfo, VideoOptions, VideoService,
+    CancellationToken, ChoiceKind, OutputOptions, Plan, Probe, RequestContext, Section, Stage,
+    StreamSpec, Tool, ToolSource, UpdateOutcome, VideoInfo, VideoOptions, VideoService,
 };
 
 const BBB: &str = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"; // Big Buck Bunny (CC-BY 3.0)
@@ -285,6 +285,72 @@ async fn ytdlp_cancel_kills_process() {
     let s1 = size(out.path());
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     assert_eq!(s1, size(out.path()), "download continued after cancel");
+}
+
+/// "Only a part": 10 seconds of the video (cut on exact frames) and of its MP3, with ffmpeg's
+/// progress going steadily up to 100 % and never past it.
+#[tokio::test]
+#[ignore]
+async fn ytdlp_cuts_a_10_second_part() {
+    let _g = LOCK.lock();
+    let svc = ready_service().await;
+    let v = probe_bbb(&svc).await;
+    let video = v
+        .choices
+        .iter()
+        .find(|c| c.height == Some(360) && c.kind == ChoiceKind::Video)
+        .unwrap();
+    let mp3 = v.choices.iter().find(|c| c.id == "a-mp3").unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let part = Section::new(60.0, 70.0);
+    for (c, ext) in [(video, "mp4"), (mp3, "mp3")] {
+        let opts = OutputOptions {
+            output_dir: out.path().to_path_buf(),
+            file_template: format!("bbb{}.%(ext)s", part.file_suffix()),
+            section: Some(part),
+            ..Default::default()
+        };
+        let Plan::YtDlp(job) = svc.plan(&v, c, &opts, &RequestContext::default()) else {
+            panic!("a part goes through yt-dlp")
+        };
+        eprintln!("yt-dlp {}", svc.ytdlp_command_line(&job, None).join(" "));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<prism_video::YtProgress>();
+        let collector = tokio::spawn(async move {
+            let mut shares = Vec::new();
+            while let Some(p) = rx.recv().await {
+                if p.stage == Stage::Downloading && p.total.is_none() {
+                    shares.push(p.percent.unwrap_or(-1.0));
+                }
+            }
+            shares
+        });
+        let t0 = std::time::Instant::now();
+        let path = svc
+            .run_ytdlp(&job, tx, CancellationToken::new())
+            .await
+            .unwrap();
+        let shares = collector.await.unwrap();
+        let j = ffprobe_json(&path);
+        let duration: f64 = j["format"]["duration"].as_str().unwrap().parse().unwrap();
+        eprintln!(
+            "{} ({duration} s) in {:?}; progress {shares:?}",
+            path.display(),
+            t0.elapsed()
+        );
+        assert!(
+            path.to_string_lossy()
+                .ends_with(&format!("bbb (1m00s–1m10s).{ext}"))
+        );
+        assert!(!shares.is_empty(), "no progress while cutting");
+        assert!(shares.windows(2).all(|w| w[0] <= w[1]), "{shares:?}");
+        assert!(
+            shares.iter().all(|s| (0.0..=100.0).contains(s)),
+            "{shares:?}"
+        );
+        assert!((duration - 10.0).abs() < 0.25, "{ext}: {duration} s");
+        // The whole video's chapters would point past the part's end.
+        assert!(j["chapters"].as_array().is_none_or(|c| c.is_empty()));
+    }
 }
 
 /// Download one stream the way the engine would: sequential ranged GETs of at most `chunk_size`.

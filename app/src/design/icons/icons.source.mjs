@@ -241,6 +241,10 @@ export const groups = {
     sidebar: [r(3, 4.5, 18, 15, 2.5), p("M9.5 4.5v15")],
     "x-circle": [RING, p("M9 9l6 6M15 9l-6 6")],
     prism: [p(roundedPoly([[10, 4.25], [16.25, 18.5], [3.75, 18.5]], 1.3)), p("M1.75 14L6 12.6"), p("M14.6 11.4L21.5 8.5M15.3 13.3H21.5M16 15.2l5.5 2.8")],
+    // Tools: one format into another (two opposing arrows) …
+    convert: [p("M4.5 8.25h14.5M15.25 4.5L19 8.25l-3.75 3.75"), p("M19.5 15.75H5M8.75 12L5 15.75l3.75 3.75")],
+    // … and a file made smaller (corners pulled in).
+    shrink: [p("M4 4l5.75 5.75M9.75 4.75v5H4.75"), p("M20 20l-5.75-5.75M14.25 19.25v-5h5")],
   },
 
   window: {

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 struct Spec {
@@ -53,6 +53,11 @@ fn spec(kind: &str) -> Spec {
             min_size: Some((600.0, 520.0)),
             ..s(760.0, 680.0, false, true, "Download Model")
         },
+        // Convert / Make smaller: file cards, the choices and the jobs below.
+        "tools" => Spec {
+            min_size: Some((560.0, 540.0)),
+            ..s(640.0, 600.0, false, true, "Tools")
+        },
         "addurl" => s(600.0, 300.0, true, false, "Add URL"),
         "mini" => s(360.0, 220.0, true, false, "Prism Mini"),
         "dropzone" => s(112.0, 112.0, true, false, "Prism Drop Zone"),
@@ -91,22 +96,8 @@ pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<()> 
         Some(id) => format!("{kind}-{id}"),
         None => kind.to_string(),
     };
-    let _opening = {
-        let mut opening = OPENING.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(w) = app.get_webview_window(&label) {
-            drop(opening);
-            bring_app_forward(app, kind);
-            let _ = w.unminimize();
-            let _ = w.show();
-            let _ = w.set_focus();
-            return Ok(());
-        }
-        if opening.contains(&label) {
-            // Another request is building this very window; it shows and focuses it.
-            return Ok(());
-        }
-        opening.push(label.clone());
-        Opening(label.clone())
+    let Some(_opening) = claim(app, kind, &label) else {
+        return Ok(());
     };
     // A `#` inside WebviewUrl::App is percent-encoded into the path, so the page is loaded
     // plainly and the hash route is set before any app script runs.
@@ -114,12 +105,70 @@ pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<()> 
         Some(id) => format!("/{kind}/{id}"),
         None => format!("/{kind}"),
     };
+    create(app, kind, &label, &route)
+}
+
+/// Brings `label`'s window forward if it exists; otherwise the right to build it, or `None` when
+/// another request is building it right now (that one shows and focuses it).
+fn claim(app: &AppHandle, kind: &str, label: &str) -> Option<Opening> {
+    let mut opening = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(w) = app.get_webview_window(label) {
+        drop(opening);
+        bring_app_forward(app, kind);
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return None;
+    }
+    if opening.iter().any(|l| l == label) {
+        return None;
+    }
+    opening.push(label.to_string());
+    Some(Opening(label.to_string()))
+}
+
+/// The Tools window (one, whatever it was opened for): an open one gets the request as a
+/// `tools-request` event and comes forward; a new one reads it from its route.
+pub fn open_tools(app: &AppHandle, request: &serde_json::Value) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("tools") {
+        let _ = app.emit_to("tools", "tools-request", request);
+        bring_app_forward(app, "tools");
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let tab = match request.get("tab").and_then(|t| t.as_str()) {
+        Some("shrink") => "shrink",
+        _ => "convert",
+    };
+    let has_files = request
+        .get("paths")
+        .and_then(|p| p.as_array())
+        .is_some_and(|p| !p.is_empty());
+    let route = if has_files {
+        let hex: String = request
+            .to_string()
+            .bytes()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        format!("/tools/{tab}/{hex}")
+    } else {
+        format!("/tools/{tab}")
+    };
+    let Some(_opening) = claim(app, "tools", "tools") else {
+        return Ok(());
+    };
+    create(app, "tools", "tools", &route)
+}
+
+fn create(app: &AppHandle, kind: &str, label: &str, route: &str) -> tauri::Result<()> {
     let sp = spec(kind);
     let (min_w, min_h) = sp
         .min_size
         .unwrap_or((sp.width.min(420.0), sp.height.min(240.0)));
     let init = format!("if (!location.hash) history.replaceState(null, '', '#{route}');");
-    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .initialization_script(&init)
         .title(sp.title)
         .inner_size(sp.width, sp.height)
@@ -133,9 +182,14 @@ pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<()> 
         // Windows: hidden until the page has painted (no white flash). macOS and Linux: shown
         // right away (see `SHOW_ON_CREATE`). Corner windows are positioned first and shown below.
         .visible(SHOW_ON_CREATE && !matches!(kind, "mini" | "dropzone"))
-        // HTML5 drag & drop (links from the browser) instead of Tauri's file-only handler.
-        .disable_drag_drop_handler()
         .focused(!matches!(kind, "mini" | "dropzone"));
+    // HTML5 drag & drop (links from the browser) instead of Tauri's file-only handler, except in
+    // the Tools window: files dropped there need their paths, which only Tauri's handler gives.
+    let builder = if kind == "tools" {
+        builder
+    } else {
+        builder.disable_drag_drop_handler()
+    };
     let builder = if matches!(kind, "mini" | "dropzone") {
         builder
     } else {
@@ -153,7 +207,7 @@ pub fn open(app: &AppHandle, kind: &str, id: Option<&str>) -> tauri::Result<()> 
     // never paints while hidden (WKWebView can pause animation frames for invisible windows)
     // must not leave the dialog invisible, so show it anyway after a moment.
     let fallback = window.clone();
-    let what = label.clone();
+    let what = label.to_string();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         if !fallback.is_visible().unwrap_or(true) {

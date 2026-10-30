@@ -22,6 +22,14 @@ export interface MediaInfo {
   pageUrl?: string | null;
   /** 1-based position in the playlist it was picked from. */
   playlistIndex?: number | null;
+  /** Only this part of the video is downloaded. */
+  section?: VideoSection | null;
+}
+
+/** A part of a video, in seconds from its start (`prism_video::Section`). */
+export interface VideoSection {
+  start: number;
+  end: number;
 }
 
 export interface DownloadItem {
@@ -62,6 +70,8 @@ export interface Progress {
   etaSecs?: number | null;
   connections: number;
   detail?: string | null;
+  /** Share done (0–1) while the size isn't known (a part of a video being cut). */
+  fraction?: number | null;
 }
 
 export interface SegmentInfo {
@@ -299,6 +309,19 @@ export interface CaptureInfo {
   needsAuth: boolean;
 }
 
+/** A file in the ZIP a Download File window is about to download ("What’s inside"). */
+export interface ZipFile {
+  /** Its number in the archive (what `extractZipFile` takes). */
+  index: number;
+  /** Path inside the archive, folders separated by `/`. */
+  path: string;
+  /** Unpacked size. */
+  size: number;
+  encrypted: boolean;
+  /** Prism can download just this file (stored or deflated, not encrypted). */
+  extractable: boolean;
+}
+
 export interface BatchEntry {
   url: string;
   fileName: string;
@@ -355,6 +378,7 @@ export type CoreEvent =
   | { type: "settingsChanged"; payload: Settings }
   | { type: "captureRequested"; payload: CaptureInfo }
   | { type: "captureUpdated"; payload: CaptureInfo }
+  | { type: "zipProgress"; payload: { captureId: string; index: number; done: number; total: number } }
   | { type: "batchRequested"; payload: BatchInfo }
   | { type: "videoRequested"; payload: VideoCapture }
   | { type: "completed"; payload: DownloadItem }
@@ -366,5 +390,6 @@ export type CoreEvent =
   | { type: "clipboardUrls"; payload: string[] }
   | { type: "grabber"; payload: { project_id: string; event: GrabberEvent } }
   | { type: "toolsProgress"; payload: { tool: string; downloaded: number; total?: number | null } }
+  | { type: "mediaJob"; payload: import("./media").MediaJob }
   | { type: "showMain" }
   | { type: "exitRequested" };

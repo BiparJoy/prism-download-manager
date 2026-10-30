@@ -5,12 +5,13 @@ import { patchSettings } from "../../lib/actions";
 import { api } from "../../lib/api";
 import { t, tk } from "../../lib/i18n";
 import { openUrl, REPO_URL } from "../../lib/links";
+import { openTools } from "../../lib/tools";
 import { useApp } from "../../lib/store";
 import { useUi } from "../../lib/ui";
 import { versionNewer } from "../../lib/version";
 import { BrowserConnect, useExtensionStatus } from "../BrowserConnect";
 
-type Change = { icon: IconName; title: string; body: string; credit?: string; action?: "sounds" | "language" | "appearance" | "model" };
+type Change = { icon: IconName; title: string; body: string; credit?: string; action?: "sounds" | "language" | "appearance" | "model" | "tools" };
 
 /**
  * What this version brings (shown once after an update, and from About Prism), then what the
@@ -18,6 +19,32 @@ type Change = { icon: IconName; title: string; body: string; credit?: string; ac
  * where they're shown; `credit` is the contributor's handle.
  */
 const CHANGES: Change[] = [
+  {
+    icon: "convert",
+    title: tk("Convert and make smaller"),
+    body: tk("Tools in the sidebar, in a finished download's menu and in the “Download complete” window: turn pictures, music and videos into another format, or make them small enough for Discord, e-mail or WhatsApp."),
+    action: "tools",
+  },
+  {
+    icon: "video",
+    title: tk("Just a part of a video"),
+    body: tk("In the “Download video” window, choose “Only a part” and pick where it starts and ends, or a chapter. Prism downloads only that part."),
+  },
+  {
+    icon: "file-archive",
+    title: tk("What's inside a ZIP"),
+    body: tk("The “Download file” window shows the files in a ZIP before you download it, and can download just one of them."),
+  },
+  {
+    icon: "status-completed",
+    title: tk("Finished means finished"),
+    body: tk("A download that finished while the window was open sometimes still looked like it was downloading."),
+    credit: "nckrkllkc",
+  },
+];
+
+/** The previous version's changes, shown below the new ones. */
+const PREVIOUS = { version: "1.1.8", changes: [
   {
     icon: "batch",
     title: tk("Lists of links"),
@@ -33,33 +60,6 @@ const CHANGES: Change[] = [
     title: tk("Dock icon on the Mac"),
     body: tk("Prism can hide its Dock icon while it waits in the menu bar: Settings › General."),
     credit: "mehdiillala",
-  },
-];
-
-/** The previous version's changes, shown below the new ones. */
-const PREVIOUS = { version: "1.1.7", changes: [
-  {
-    icon: "model",
-    title: tk("AI models from Hugging Face"),
-    body: tk("Download a model by its name, a link or a search. Prism picks the files you need (one GGUF version, the weights in one format) and downloads them over many connections, checked against Hugging Face."),
-    credit: "Vasili-Sk",
-    action: "model",
-  },
-  {
-    icon: "globe",
-    title: tk("Turkish"),
-    body: tk("Prism now speaks Turkish too."),
-    action: "language",
-  },
-  {
-    icon: "monitor",
-    title: tk("Windows on Linux"),
-    body: tk("On KDE Plasma, Prism's windows no longer sometimes open empty."),
-  },
-  {
-    icon: "sun",
-    title: tk("Background that matches the theme"),
-    body: tk("On Linux the window no longer shows the desktop through it, and on Windows the glass switches too when Windows changes between light and dark."),
   },
 ] satisfies Change[] };
 
@@ -77,7 +77,7 @@ export function WhatsNewSheet() {
         <BrandTile size={52} />
         <div>
           <h2>{t("Prism {version} is here", { version })}</h2>
-          <p className="text-secondary">{t("Fixes for lists of links and for Linux, and a hidden Dock icon on the Mac.")}</p>
+          <p className="text-secondary">{t("Convert and make smaller, just a part of a video, and a look inside ZIP files.")}</p>
         </div>
       </header>
 
@@ -147,6 +147,11 @@ function ChangeList({ changes }: { changes: Change[] }) {
               )}
               {c.action === "model" && (
                 <button type="button" className="linkbtn" onClick={() => void api.openWindow("model")}>
+                  {t("Try it")}
+                </button>
+              )}
+              {c.action === "tools" && (
+                <button type="button" className="linkbtn" onClick={() => openTools({ tab: "convert", paths: [] })}>
                   {t("Try it")}
                 </button>
               )}

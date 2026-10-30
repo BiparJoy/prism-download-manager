@@ -44,6 +44,8 @@ enum Msg {
     Close {
         reply: oneshot::Sender<Result<(), EngineError>>,
     },
+    /// The file is about to be deleted: drop what's buffered and close it without syncing.
+    Discard { reply: oneshot::Sender<()> },
 }
 
 struct Pending {
@@ -188,6 +190,26 @@ impl Writer {
         result
     }
 
+    /// Closes the file without writing what's buffered or syncing it, and joins the thread: for a
+    /// download that is cancelled and deleted. Flushing and fsyncing data that is deleted right
+    /// after only made the cancel slow (seconds on a busy disk with a virus scanner).
+    pub(crate) async fn discard(&self) {
+        let Ok(tx) = self.sender() else {
+            return;
+        };
+        let (reply, rx) = oneshot::channel();
+        let sent = tx.send(Msg::Discard { reply }).is_ok();
+        drop(tx);
+        self.tx.lock().expect("writer tx lock").take();
+        if sent {
+            let _ = rx.await;
+        }
+        let handle = self.thread.lock().expect("writer thread lock").take();
+        if let Some(h) = handle {
+            let _ = tokio::task::spawn_blocking(move || h.join()).await;
+        }
+    }
+
     fn closed_error(&self) -> EngineError {
         self.error()
             .unwrap_or_else(|| EngineError::internal("writer thread stopped"))
@@ -257,6 +279,13 @@ impl WriterThread {
                         Ok(())
                     });
                     let _ = reply.send(r);
+                    return;
+                }
+                Ok(Msg::Discard { reply }) => {
+                    // The buffers' budget permits are returned as they drop; the file closes when
+                    // the thread ends.
+                    self.pending.clear();
+                    let _ = reply.send(());
                     return;
                 }
                 Err(RecvTimeoutError::Timeout) => self.flush_all(),
@@ -393,5 +422,37 @@ mod tests {
             .is_err()
         );
         assert_eq!(std::fs::read(&path).unwrap(), data);
+    }
+
+    /// A cancelled-and-deleted download: buffered data is dropped, the budget comes back, and the
+    /// file is closed (Windows can delete it right away).
+    #[tokio::test]
+    async fn discard_drops_buffers_and_closes_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("d.prismpart");
+        let total = 1 << 20;
+        let file = storage::create_part_file(&path, Some(total), true).unwrap();
+        let table = Arc::new(SegmentTable::new(Some(total), 1 << 20, true));
+        let budget = Arc::new(Semaphore::new(4 << 20));
+        let w = Writer::spawn(file, table.clone(), budget.clone(), 4 << 20, 1 << 20).unwrap();
+        let (a, _) = table.acquire(0, false).unwrap();
+        let permit = w.reserve(64 * 1024).await.unwrap();
+        w.submit(0, a.seg, 0, Bytes::from(vec![7u8; 64 * 1024]), permit)
+            .unwrap();
+        w.discard().await;
+        assert_eq!(budget.available_permits(), 4 << 20, "budget fully returned");
+        assert!(
+            w.submit(
+                0,
+                0,
+                0,
+                Bytes::new(),
+                budget.clone().acquire_owned().await.unwrap()
+            )
+            .is_err()
+        );
+        std::fs::remove_file(&path).expect("the file is closed and can be deleted");
+        // Discarding twice (or after close) is harmless.
+        w.discard().await;
     }
 }

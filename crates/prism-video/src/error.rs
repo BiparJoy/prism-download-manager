@@ -52,6 +52,10 @@ pub enum VideoError {
     #[error("missing input file for post-processing: {0}")]
     MissingInput(PathBuf),
 
+    /// A Tools job that can't be done, for a sentence in the UI.
+    #[error("{0:?}")]
+    Media(crate::media::MediaProblem),
+
     #[error("{0}")]
     Other(String),
 }

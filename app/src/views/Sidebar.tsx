@@ -10,6 +10,7 @@ import { t, tr } from "../lib/i18n";
 import { categoryIcon, displayName } from "../lib/present";
 import { Ring } from "../lib/ring";
 import { type AppState, counts, useApp, type View } from "../lib/store";
+import { openTools, selectedMediaPaths } from "../lib/tools";
 import { attempt, useUi } from "../lib/ui";
 
 const same = (a: View, b: View) => a.kind === b.kind && ("id" in a ? a.id : "") === ("id" in b ? b.id : "");
@@ -39,6 +40,16 @@ function NavItem({ view, icon, label, extra, onContext }: { view: View; icon: Ic
 
 const Count = ({ n }: { n: number }) => <span className="count">{n}</span>;
 
+/** A Tools entry: opens the Tools window (with the selected finished media files, if any). */
+function ToolItem({ icon, label, tab }: { icon: IconName; label: string; tab: "convert" | "shrink" }) {
+  return (
+    <button type="button" className="side-item" onClick={() => openTools({ tab, paths: selectedMediaPaths() })}>
+      <Icon name={icon} size={16} />
+      <span className="side-item__label">{label}</span>
+    </button>
+  );
+}
+
 export function Sidebar() {
   const items = useApp((s) => s.items);
   const c = useMemo(() => counts({ items } as AppState), [items]);
@@ -46,6 +57,28 @@ export function Sidebar() {
   const queues = useApp((s) => s.queues);
   const projects = useApp((s) => s.grabberProjects);
   const ui = useUi.getState;
+  // The list scrolls without a scrollbar: a soft fade at an edge says there's more there (with
+  // the Tools section, Grabber and Trash can be below the edge in a small window).
+  const navRef = useRef<HTMLElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const [moreAbove, setMoreAbove] = useState(false);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const check = () => {
+      setMoreAbove(nav.scrollTop > 2);
+      setMoreBelow(nav.scrollTop + nav.clientHeight < nav.scrollHeight - 2);
+    };
+    check();
+    nav.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(nav);
+    for (const child of Array.from(nav.children)) ro.observe(child);
+    return () => {
+      nav.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [categories.length, queues.length, projects.length]);
 
   const categoryMenu = (id: string) => (e: React.MouseEvent) => {
     const cat = useApp.getState().categories.find((x) => x.id === id);
@@ -78,7 +111,7 @@ export function Sidebar() {
           Prism
         </span>
       </div>
-      <nav className="nav">
+      <nav className="nav" ref={navRef} data-more-below={moreBelow || undefined} data-more-above={moreAbove || undefined}>
         <NavItem view={{ kind: "all" }} icon="all" label={t("All downloads")} extra={<Count n={c.all} />} />
         <NavItem view={{ kind: "status", id: "unfinished" }} icon="unfinished" label={t("Unfinished")} extra={<Count n={c.unfinished} />} />
         <NavItem view={{ kind: "status", id: "finished" }} icon="finished" label={t("Finished")} extra={<Count n={c.finished} />} />
@@ -120,6 +153,10 @@ export function Sidebar() {
           />
         ))}
 
+        <Section title={t("Tools")} />
+        <ToolItem icon="convert" label={t("Convert")} tab="convert" />
+        <ToolItem icon="shrink" label={t("Make smaller")} tab="shrink" />
+
         <Section title={t("Grabber")} onAdd={() => ui().openSheet({ kind: "grabber", projectId: null })} addLabel={t("New grabber project")} />
         {projects.map((p) => (
           <NavItem
@@ -151,13 +188,17 @@ export function Sidebar() {
   );
 }
 
-function Section({ title, onAdd, addLabel }: { title: string; onAdd: () => void; addLabel: string }) {
+function Section({ title, onAdd, addLabel }: { title: string; onAdd?: () => void; addLabel?: string }) {
   return (
     <div className="side-section">
       <span className="t-overline">{title}</span>
-      <button type="button" className="side-section__add" aria-label={addLabel} data-tip={addLabel} onClick={onAdd}>
-        <Icon name="plus" size={14} />
-      </button>
+      {onAdd ? (
+        <button type="button" className="side-section__add" aria-label={addLabel} data-tip={addLabel} onClick={onAdd}>
+          <Icon name="plus" size={14} />
+        </button>
+      ) : (
+        <span className="side-section__add" style={{ visibility: "hidden" }} aria-hidden="true" />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { LogoMark } from "../components/LogoMark";
 import { openMenuAt } from "../components/MenuHost";
 import { FileTile } from "../components/Visuals";
 import { WindowFrame } from "../components/WindowFrame";
+import { ZipContents } from "../components/ZipContents";
 import { Icon } from "../design/icons";
 import { api, onCoreEvent } from "../lib/api";
 import { formatBytes, hostOf } from "../lib/format";
@@ -14,6 +15,11 @@ import { useApp } from "../lib/store";
 import type { CaptureInfo, StartMode } from "../lib/types";
 import { attempt } from "../lib/ui";
 import { copyText, pickFolder, win } from "../lib/win";
+
+const ZIP_TYPES = new Set(["application/zip", "application/x-zip-compressed", "application/x-zip"]);
+
+/** A ZIP over HTTP(S): its list of files can be read before downloading it. */
+const isZip = (c: CaptureInfo) => c.kind === "http" && (/\.zip$/i.test(c.fileName) || ZIP_TYPES.has((c.mime ?? "").split(";")[0].trim().toLowerCase()));
 
 export default function CaptureWindow({ id }: { id: string }) {
   const [cap, setCap] = useState<CaptureInfo | null>(null);
@@ -156,6 +162,8 @@ export default function CaptureWindow({ id }: { id: string }) {
             <small className={lowSpace ? "text-danger" : undefined}>{free != null ? t("{size} free", { size: formatBytes(free) }) : ""}</small>
           </div>
         </div>
+
+        {cap && isZip(cap) && cap.resumable && <ZipContents captureId={id} dir={dir} />}
 
         {cap?.needsAuth && (
           <div className="authbox">

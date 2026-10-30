@@ -90,6 +90,18 @@ pub struct SniffedStream {
     pub label: Option<String>,
 }
 
+/// A file of a ZIP downloaded on its own from the Download File window ("What's inside").
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ZipProgress {
+    pub capture_id: String,
+    /// The file's number in the archive.
+    pub index: u32,
+    /// Unpacked bytes written so far.
+    pub done: u64,
+    pub total: u64,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum CoreEvent {
@@ -103,6 +115,7 @@ pub enum CoreEvent {
     SettingsChanged(Box<Settings>),
     CaptureRequested(CaptureInfo),
     CaptureUpdated(CaptureInfo),
+    ZipProgress(ZipProgress),
     BatchRequested(BatchInfo),
     VideoRequested(VideoCapture),
     /// A download finished (UI shows the completion dialog / notification).
@@ -148,6 +161,8 @@ pub enum CoreEvent {
         downloaded: u64,
         total: Option<u64>,
     },
+    /// A Tools job (convert, make smaller, ZIP) was added or changed.
+    MediaJob(crate::media::MediaJob),
     /// Ask the shell to bring the main window forward (second instance, tray, ...).
     ShowMain,
     /// The app should exit (post action "exit").

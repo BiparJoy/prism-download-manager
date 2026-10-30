@@ -9,6 +9,7 @@ import { formatBytes, formatDuration, formatSpeed } from "../lib/format";
 import { t } from "../lib/i18n";
 import { fullPath } from "../lib/paths";
 import { useApp } from "../lib/store";
+import { mediaPath } from "../lib/tools";
 import { attempt, toast } from "../lib/ui";
 import { copyText, win } from "../lib/win";
 
@@ -28,6 +29,7 @@ export default function CompleteWindow({ id }: { id: string }) {
   const took = item?.finishedAt && item.lastTryAt ? (item.finishedAt - item.lastTryAt) / 1000 : null;
   const size = item?.size ?? item?.downloaded ?? 0;
   const path = item ? fullPath(item.saveDir, item.fileName) : "";
+  const media = mediaPath(item);
 
   return (
     <WindowFrame kind="complete" title={t("Download complete")} onClose={() => void close()} className="complete">
@@ -53,6 +55,16 @@ export default function CompleteWindow({ id }: { id: string }) {
           <span className="t-mono ellipsis selectable" title={path}>
             {path}
           </span>
+        </div>
+      )}
+      {media && (
+        <div className="complete__tools">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void run(api.openTools({ tab: "convert", paths: [media] }), t("Could not open Tools"))}>
+            <Icon name="convert" size={14} /> {t("Convert")}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void run(api.openTools({ tab: "shrink", paths: [media] }), t("Could not open Tools"))}>
+            <Icon name="shrink" size={14} /> {t("Make smaller")}
+          </button>
         </div>
       )}
       <footer className="dialog__footer">

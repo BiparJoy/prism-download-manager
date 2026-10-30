@@ -231,6 +231,35 @@ pub async fn add_torrent(core: State<'_, Core>, args: AddTorrentArgs) -> CmdResu
     .map_err(err)
 }
 
+// ----- "What's inside" a ZIP in the Download File window -------------------------------------
+
+/// The files in the ZIP a Download File window is about to download. Errors are codes the
+/// window explains (`zip:noRanges`, `zip:notZip`, `zip:protected`, …).
+#[tauri::command]
+pub async fn zip_contents(
+    core: State<'_, Core>,
+    id: String,
+) -> CmdResult<Vec<prism_core::manager::ZipFile>> {
+    core.zip_contents(&id).await.map_err(err)
+}
+
+/// Downloads one file of that ZIP into `dir`; returns where it was saved.
+#[tauri::command]
+pub async fn extract_zip_file(
+    core: State<'_, Core>,
+    id: String,
+    index: u32,
+    dir: PathBuf,
+) -> CmdResult<PathBuf> {
+    core.extract_zip_file(&id, index, &dir).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn cancel_zip_file(core: State<'_, Core>, id: String, index: u32) -> CmdResult<()> {
+    core.cancel_zip_file(&id, index);
+    Ok(())
+}
+
 // ----- Hugging Face models (#29) ------------------------------------------------------------
 
 /// Whether the OS puts a material (Mica / vibrancy) behind the window (see main.rs).
@@ -290,6 +319,82 @@ pub async fn hf_add(
     args: prism_core::huggingface::AddModel,
 ) -> CmdResult<usize> {
     core.hf_add(args).map_err(err)
+}
+
+// ----- Tools: convert, make smaller, ZIP -----------------------------------------------------
+
+/// Read files for the Tools window (ffmpeg is downloaded first if there's none).
+#[tauri::command]
+pub async fn media_inspect(
+    core: State<'_, Core>,
+    paths: Vec<PathBuf>,
+) -> CmdResult<Vec<prism_core::media::MediaInfo>> {
+    Ok(core.media_inspect(paths).await)
+}
+
+/// The "Make smaller" estimate (no work done).
+#[tauri::command]
+pub fn media_plan(
+    core: State<'_, Core>,
+    files: Vec<prism_core::media::MediaInfo>,
+    target_bytes: u64,
+) -> Vec<prism_core::media::ShrinkPlan> {
+    core.media_plan(&files, target_bytes)
+}
+
+#[tauri::command]
+pub async fn media_start(
+    core: State<'_, Core>,
+    request: prism_core::media::MediaRequest,
+) -> CmdResult<Vec<prism_core::media::MediaJob>> {
+    core.media_start(request).map_err(err)
+}
+
+#[tauri::command]
+pub fn media_cancel(core: State<'_, Core>, id: String) {
+    core.media_cancel(&id);
+}
+
+#[tauri::command]
+pub fn media_jobs(core: State<'_, Core>) -> Vec<prism_core::media::MediaJob> {
+    core.media_jobs()
+}
+
+#[tauri::command]
+pub fn media_clear(core: State<'_, Core>) -> Vec<prism_core::media::MediaJob> {
+    core.media_clear()
+}
+
+/// Open (or bring forward) the Tools window: `{tab, paths?, preset?}`.
+#[tauri::command]
+pub async fn open_tools(app: AppHandle, request: serde_json::Value) -> CmdResult<()> {
+    windows::open_tools(&app, &request).map_err(err)
+}
+
+/// Open a file (a Tools result). A file that's gone is an error, not a new folder.
+#[tauri::command]
+pub async fn open_file(app: AppHandle, path: PathBuf) -> CmdResult<()> {
+    if !path.is_file() {
+        return Err("The file isn’t there any more".into());
+    }
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(err)
+}
+
+/// Show a file in its folder (or the folder, if the file is gone).
+#[tauri::command]
+pub async fn reveal_path(app: AppHandle, path: PathBuf) -> CmdResult<()> {
+    if path.exists() {
+        return app.opener().reveal_item_in_dir(&path).map_err(err);
+    }
+    let dir = path
+        .parent()
+        .filter(|d| d.is_dir())
+        .ok_or("The folder isn’t there any more")?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(err)
 }
 
 // ----- item control -----------------------------------------------------------------------

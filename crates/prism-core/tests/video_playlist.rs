@@ -1,5 +1,6 @@
 //! Videos picked in the video dialog: playlist entries named after their own titles (numbered
-//! when Settings › Video asks), the "One at a time" queue, and the container set in Settings.
+//! when Settings › Video asks), the "One at a time" queue, the container set in Settings, and
+//! a part of a video ("Only a part").
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -185,7 +186,8 @@ async fn one_at_a_time_puts_the_playlist_into_a_one_download_queue() {
     assert!(items.iter().all(|i| i.queue_id.is_none()));
 }
 
-/// A stand-in yt-dlp printing `fixture` (after ~1 s) for anything but `--version`.
+/// A stand-in yt-dlp printing `fixture` (after ~1 s) for anything but `--version`. Each call's
+/// arguments are added to `args.txt` next to it.
 fn fake_ytdlp(dir: &Path, fixture: &str) -> PathBuf {
     let src = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../prism-video/tests/fixtures")
@@ -201,6 +203,7 @@ fn fake_ytdlp(dir: &Path, fixture: &str) -> PathBuf {
             &exe,
             "@echo off\r\n\
              if \"%1\"==\"--version\" (echo 2026.10.10& exit /b 0)\r\n\
+             echo %*>>\"%~dp0args.txt\"\r\n\
              ping -n 2 127.0.0.1 >nul\r\n\
              type \"%~dp0probe.json\"\r\n",
         )
@@ -213,7 +216,7 @@ fn fake_ytdlp(dir: &Path, fixture: &str) -> PathBuf {
         let exe = dir.join("yt-dlp");
         std::fs::write(
             &exe,
-            "#!/bin/sh\n[ \"$1\" = --version ] && echo 2026.10.10 && exit 0\nsleep 1\ncat \"$(dirname \"$0\")/probe.json\"\n",
+            "#!/bin/sh\n[ \"$1\" = --version ] && echo 2026.10.10 && exit 0\necho \"$*\" >> \"$(dirname \"$0\")/args.txt\"\nsleep 1\ncat \"$(dirname \"$0\")/probe.json\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -324,4 +327,75 @@ async fn a_playlist_video_without_a_title_is_named_once_its_page_is_read() {
     );
     assert_eq!(media.playlist_index, Some(3));
     core.pause_items(&[id]);
+}
+
+const BBB: &str = "https://www.youtube.com/watch?v=aqz-KE-bpKQ";
+
+/// What the video dialog sends for "Only a part" of Big Buck Bunny (10:35).
+fn part_decision(section: serde_json::Value) -> VideoDecision {
+    serde_json::from_value(json!({
+        "pageUrl": BBB,
+        "title": "Big Buck Bunny",
+        "duration": 635,
+        "choice": {"id": "v1080p60", "kind": "video", "label": "1080p60 · H.264", "subLabel": "", "container": "mp4", "height": 1080},
+        "options": {"container": "mp4"},
+        "section": section,
+        "mode": {"type": "later"},
+    }))
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_part_of_a_video_keeps_its_range_across_a_restart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let part = prism_video::Section::new(83.0, 165.0);
+    let id = {
+        let core = core_with_fake_tools(tmp.path(), "youtube_bbb.json").await;
+        let items = core
+            .confirm_video(part_decision(json!({"start": 83, "end": "2:45"})))
+            .unwrap();
+        // Named apart from the whole video.
+        assert_eq!(
+            names(&items),
+            ["Big Buck Bunny [aqz-KE-bpKQ] (1m23s–2m45s).mp4"]
+        );
+        assert_eq!(items[0].media.as_ref().unwrap().section, Some(part));
+        // A paused cut starts over: honest about it.
+        assert_eq!(items[0].resumable, Some(false));
+        // The whole video, picked as a "part", is just the video.
+        let whole = core
+            .confirm_video(part_decision(json!({"start": 0, "end": 635})))
+            .unwrap();
+        assert_eq!(names(&whole), ["Big Buck Bunny [aqz-KE-bpKQ].mp4"]);
+        assert_eq!(whole[0].media.as_ref().unwrap().section, None);
+        core.shutdown().await;
+        items[0].id.clone()
+    };
+
+    // The app restarts; the job still holds the range.
+    let core = core_in(tmp.path()).await;
+    let item = core.item(&id).expect("item persisted");
+    assert_eq!(item.media.as_ref().unwrap().section, Some(part));
+    assert_eq!(
+        item.request.as_ref().unwrap()["section"],
+        json!({"start": 83.0, "end": 165.0})
+    );
+    // Started now, yt-dlp is asked for the same part (not the accelerated whole file).
+    let args_file = tmp.path().join("bin").join("args.txt");
+    core.start_items(std::slice::from_ref(&id));
+    let args = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let text = std::fs::read_to_string(&args_file).unwrap_or_default();
+            if let Some(line) = text.lines().find(|l| l.contains("--download-sections")) {
+                return line.to_string();
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("yt-dlp was not asked for the part");
+    assert!(args.contains("--download-sections *83-165"), "{args}");
+    assert!(args.contains("--force-keyframes-at-cuts"), "{args}");
+    assert!(args.contains("(1m23s"), "{args}");
+    core.shutdown().await;
 }

@@ -11,6 +11,7 @@ import { t, tr } from "../lib/i18n";
 import { canPause, formatPct, progressOf, statusView } from "../lib/present";
 import { useApp } from "../lib/store";
 import { attempt } from "../lib/ui";
+import { formatRange, ltr } from "../lib/videoPart";
 import { copyText, win } from "../lib/win";
 
 export default function DetailsWindow({ id, simple }: { id: string; simple?: boolean }) {
@@ -87,6 +88,7 @@ export default function DetailsWindow({ id, simple }: { id: string; simple?: boo
           {status === "downloading" ? <span className="status-dot status-dot--live" /> : <Icon name={sv.icon} size={12} strokeWidth={2} />}
           {sv.label}
         </span>
+        {item.media?.section && <span className="badge">{t("Part {range}", { range: ltr(formatRange(item.media.section)) })}</span>}
         {item.resumable !== false && (
           <span className="badge badge--success">
             <Icon name="shield" size={12} strokeWidth={2} /> {t("Resumable")}
