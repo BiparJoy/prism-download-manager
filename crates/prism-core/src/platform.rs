@@ -27,6 +27,26 @@ pub enum PowerAction {
 }
 
 /// Free bytes on the volume containing `path` (walks up to an existing ancestor).
+/// The Linux desktop session as GTK and WebKit see it: whether Prism's windows draw through
+/// Wayland or X11, the desktop, and the WebKit renderer variables a user set (#36, #44: empty
+/// windows depended on them). For the log and the diagnostics zip; `None` on other systems.
+/// Only names of sessions and desktops, nothing personal.
+pub fn desktop_session() -> Option<serde_json::Value> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    Some(serde_json::json!({
+        "sessionType": var("XDG_SESSION_TYPE"),
+        "desktop": var("XDG_CURRENT_DESKTOP"),
+        "wayland": var("WAYLAND_DISPLAY").is_some(),
+        "x11": var("DISPLAY").is_some(),
+        "gdkBackend": var("GDK_BACKEND"),
+        "webkitDisableDmabufRenderer": var("WEBKIT_DISABLE_DMABUF_RENDERER"),
+        "webkitDisableCompositingMode": var("WEBKIT_DISABLE_COMPOSITING_MODE"),
+    }))
+}
+
 pub fn available_space(path: &Path) -> Option<u64> {
     let mut p = path;
     loop {

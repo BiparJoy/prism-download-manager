@@ -721,7 +721,7 @@ pub async fn open_extension_store(app: AppHandle, browser: String) -> CmdResult<
         return Ok(());
     }
     app.opener()
-        .open_url(crate::integration::EXTENSION_STORE_URL, None::<&str>)
+        .open_url(crate::integration::store_url(&browser), None::<&str>)
         .map_err(err)
 }
 

@@ -213,7 +213,7 @@
       "name": "Which browsers does the extension work with?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Chrome, Edge, Brave, Opera, Vivaldi and Helium add it from the Chrome Web Store in one click, and the store keeps it up to date. Firefox and Zen use prism-firefox.zip: Prism isn’t in Firefox Add-ons yet, so regular Firefox keeps it until restart, while Developer Edition, Nightly and ESR can keep it permanently. How to install it · more about the extension."
+        "text": "Chrome, Edge, Brave, Opera, Vivaldi and Helium add it from the Chrome Web Store, Firefox and Zen from Firefox Add-ons: one click, and the store keeps it up to date. How to install it · more about the extension."
       }
     },
     {
@@ -221,7 +221,7 @@
       "name": "Which systems and languages does Prism support?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Windows 10 and 11 (64-bit), macOS 11 Big Sur or later on Apple Silicon and Intel, and 64-bit Linux as a deb, rpm or AppImage. The app speaks English, Czech, German, Spanish, French, Italian, Indonesian, Turkish and Arabic, and follows your system’s language."
+        "text": "Windows 10 and 11 (64-bit), macOS 11 Big Sur or later on Apple Silicon and Intel, and 64-bit Linux as a deb, rpm or AppImage. The app speaks English, Czech, German, Spanish, French, Italian, Indonesian, Turkish, Simplified Chinese and Arabic, and follows your system’s language."
       }
     },
     {
@@ -956,10 +956,10 @@
       <article class="tile reveal">
         <div class="tile-icon" aria-hidden="true"><svg class="i"><use href="#i-puzzle"/></svg></div>
         <h3 class="h3">Browser extension</h3>
-        <p>Install the app first, then add the extension — it’s what lets Prism catch downloads and videos. One click from the Chrome Web Store, and it updates by itself. <a href="#guide-extension">Step-by-step guide</a> · <a href="/browser-extension/">what the extension does</a>.</p>
+        <p>Install the app first, then add the extension — it’s what lets Prism catch downloads and videos. One click from the Chrome Web Store or Firefox Add-ons, and it updates by itself. <a href="#guide-extension">Step-by-step guide</a> · <a href="/browser-extension/">what the extension does</a>.</p>
         <div class="mini-links">
           <a class="btn btn-primary btn-sm" href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-puzzle"/></svg>Chrome Web Store</a>
-          <a class="btn btn-glass btn-sm" href="https://github.com/FortoGraphy/prism-download-manager/releases/download/v1.2.2/prism-firefox.zip" data-asset="ext-firefox"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Firefox</a>
+          <a class="btn btn-glass btn-sm" href="https://addons.mozilla.org/firefox/addon/prism-download-manager/" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-puzzle"/></svg>Firefox Add-ons</a>
         </div>
       </article>
       <article class="tile reveal d1">
@@ -1196,24 +1196,23 @@ sha256sum -c SHA256SUMS.txt --ignore-missing</pre><button class="copy-btn" type=
         <div class="panel" role="tabpanel" id="panel-firefox" aria-labelledby="tab-firefox" tabindex="0" hidden>
           <div class="panel-grid">
             <ol class="steps">
-              <li><div><h4>Download <a href="https://github.com/FortoGraphy/prism-download-manager/releases/download/v1.2.2/prism-firefox.zip" data-asset="ext-firefox"><code>prism-firefox.zip</code></a></h4><p>Prism isn’t in Firefox Add-ons yet. Unzip it into a folder that will <strong>stay</strong> (e.g. <code>Documents/Prism Extension</code>).</p></div></li>
-              <li><div><h4>Try it now (until Firefox restarts)</h4><p>Open <code>about:debugging#/runtime/this-firefox</code> → <strong>Load Temporary Add-on…</strong> → pick <code>manifest.json</code> in the unzipped <code>firefox</code> folder.</p></div></li>
-              <li><div><h4>Or keep it permanently</h4><p>On Firefox Developer Edition, Nightly or ESR: in <code>about:config</code> set <code>xpinstall.signatures.required</code> to <code>false</code>, then <code>about:addons</code> → gear icon → <strong>Install Add-on From File…</strong> → <code>prism-firefox.zip</code>.</p></div></li>
+              <li><div><h4>Open <a href="https://addons.mozilla.org/firefox/addon/prism-download-manager/" rel="noopener">Prism in Firefox Add-ons</a></h4><p>In Firefox or Zen (Firefox 140 or later). It’s free.</p></div></li>
+              <li><div><h4>Click <strong>Add to Firefox</strong></h4><p>The blue button on the add-on’s page.</p></div></li>
+              <li><div><h4>Confirm with <strong>Add</strong></h4><p>Firefox asks once. From then on it updates Prism by itself.</p></div></li>
             </ol>
             <div class="panel-aside">
               <div class="illo" aria-hidden="true">
                 <div class="mb-top">
                   <div class="mb-dots"><i></i><i></i><i></i></div>
                   <span class="mk">1</span>
-                  <div class="mb-url">about:debugging#/runtime/this-firefox</div>
+                  <div class="mb-url">addons.mozilla.org/firefox/addon/prism-download-manager</div>
                 </div>
                 <div class="ext-main" style="min-height:14rem">
-                  <div class="ext-bar"><span class="t">This Firefox</span></div>
-                  <div class="ext-bar"><span class="t" style="font-size:.78rem;font-weight:600;color:var(--text-secondary)">Temporary Extensions</span><span class="ext-btn hl">Load Temporary Add-on…</span></div>
-                  <div class="ext-card"><img src="assets/img/app-icon.webp" width="160" height="160" alt="" loading="lazy"><div><div class="n">Prism Download Manager</div><div class="d">Location: …/firefox/manifest.json</div></div></div>
+                  <div class="ext-card"><img src="assets/img/app-icon.webp" width="160" height="160" alt="" loading="lazy"><div><div class="n">Prism Download Manager</div><div class="d">Firefox Add-ons</div></div></div>
+                  <div class="ext-bar"><span class="t" style="font-size:.78rem;font-weight:600;color:var(--text-secondary)">Free</span><span class="ext-btn hl">Add to Firefox</span></div>
                 </div>
               </div>
-              <p class="note panel-note"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>Firefox only keeps extensions that aren’t signed by Mozilla until it restarts — that’s why the permanent route needs Developer Edition, Nightly or ESR.</span></p>
+              <p class="note panel-note"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>Older Firefox (ESR 128) can load <a href="https://github.com/FortoGraphy/prism-download-manager/releases/download/v1.2.2/prism-firefox.zip" data-asset="ext-firefox"><code>prism-firefox.zip</code></a> by hand instead: <code>about:debugging#/runtime/this-firefox</code> → <strong>Load Temporary Add-on…</strong> (until Firefox restarts).</span></p>
               <p class="note panel-note"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span><strong>Zen</strong> is built on Firefox: the same steps work there, and Prism connects to it like to Firefox.</span></p>
             </div>
           </div>
@@ -1283,9 +1282,9 @@ sha256sum -c SHA256SUMS.txt --ignore-missing</pre><button class="copy-btn" type=
       <details class="acc"><summary>Can it download AI models from Hugging Face?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>Yes, since 1.1.7. Click the model button in the toolbar, or paste a model’s name like <code>Qwen/Qwen3-8B</code> or its link into <em>Add URL</em>. Prism picks the files you need — for GGUF models one quantization, Q4_K_M unless you choose another — downloads them over many connections and checks each against its SHA-256. Gated and private models work with an access token. <a href="/hugging-face/">How it works</a>.</p></div></details>
       <details class="acc"><summary>Which browsers does the extension work with?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Chrome, Edge, Brave, Opera, Vivaldi and Helium add it from the Chrome Web Store in one click, and the store keeps it up to date. Firefox and Zen use <code>prism-firefox.zip</code>: Prism isn’t in Firefox Add-ons yet, so regular Firefox keeps it until restart, while Developer Edition, Nightly and ESR can keep it permanently. <a href="#guide-extension">How to install it</a> · <a href="/browser-extension/">more about the extension</a>.</p></div></details>
+        <div class="acc-body"><p>Chrome, Edge, Brave, Opera, Vivaldi and Helium add it from the Chrome Web Store, Firefox and Zen from <a href="https://addons.mozilla.org/firefox/addon/prism-download-manager/" rel="noopener">Firefox Add-ons</a>: one click, and the store keeps it up to date. <a href="#guide-extension">How to install it</a> · <a href="/browser-extension/">more about the extension</a>.</p></div></details>
       <details class="acc"><summary>Which systems and languages does Prism support?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Windows 10 and 11 (64-bit), macOS 11 Big Sur or later on Apple Silicon and Intel, and 64-bit Linux as a deb, rpm or AppImage. The app speaks English, Czech, German, Spanish, French, Italian, Indonesian, Turkish and Arabic, and follows your system’s language.</p></div></details>
+        <div class="acc-body"><p>Windows 10 and 11 (64-bit), macOS 11 Big Sur or later on Apple Silicon and Intel, and 64-bit Linux as a deb, rpm or AppImage. The app speaks English, Czech, German, Spanish, French, Italian, Indonesian, Turkish, Simplified Chinese and Arabic, and follows your system’s language.</p></div></details>
       <details class="acc"><summary>Is there a Flatpak? What about Snap browsers?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>Prism ships as deb, rpm and AppImage. There’s no Flatpak yet: browser integration relies on a native helper, which a sandboxed app can’t register without extra work. Flatpak <em>browsers</em> can’t start native helpers at all, so for full integration use a browser from a deb/rpm package; Snap Firefox works after a one-time permission prompt.</p></div></details>
       <details class="acc"><summary>Why does macOS say the app can’t be opened?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>

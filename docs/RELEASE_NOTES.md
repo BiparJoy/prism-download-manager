@@ -1,7 +1,33 @@
-# Prism 1.2.2 — One beam. Many rays.
+# Prism 1.2.3 — One beam. Many rays.
 
 A fast, open-source download manager for Windows, Linux and macOS, with browser integration
 and video downloads.
+
+## What's new in 1.2.3
+
+* **Simplified Chinese** ([#42](https://github.com/FortoGraphy/prism-download-manager/issues/42)).
+  Prism now speaks 简体中文: it follows your system's language, or pick it in Settings › General ›
+  Language. Thanks to jtyking for asking!
+* **AI models in Tools.** The Hugging Face downloader is now also in the sidebar's *Tools*, next
+  to *Convert* and *Make smaller*.
+* **Prism's window on Linux**
+  ([#36](https://github.com/FortoGraphy/prism-download-manager/issues/36),
+  [#41](https://github.com/FortoGraphy/prism-download-manager/issues/41),
+  [#44](https://github.com/FortoGraphy/prism-download-manager/issues/44)): since 1.1.8 the window
+  could stay empty (KDE Plasma with Intel graphics, Hyprland with AMD, also under XWayland), be
+  drawn only in parts, or stop updating, so a finished download still showed as downloading until
+  the window was opened again. Prism no longer chooses WebKit's renderer: WebKitGTK picks it, as
+  in 1.1.7. `WEBKIT_DISABLE_DMABUF_RENDERER` set by you still applies. Thanks to sxdot,
+  Reno-Sifana, nckrkllkc and HaixueNiyi for the screenshots, videos and the A/B test!
+* **A queue with nothing to download no longer runs its finishing action**
+  ([#41](https://github.com/FortoGraphy/prism-download-manager/issues/41)). *Run now* on an empty
+  queue put the computer to sleep (or shut it down) right away; now it only says that the queue
+  has nothing left to download.
+* **Videos with an old yt-dlp on Linux**
+  ([#43](https://github.com/FortoGraphy/prism-download-manager/issues/43)). With a
+  distribution's yt-dlp installed, every video stopped with "no such option: --js-runtimes".
+  Prism now downloads its own current yt-dlp in that case (YouTube needs it), and without a
+  connection leaves that option out so other sites still work.
 
 ## What's new in 1.2.2
 

@@ -1234,10 +1234,13 @@ impl Core {
         };
         zip.start_file("items.json", opts)?;
         zip.write_all(serde_json::to_string_pretty(&summary)?.as_bytes())?;
-        let info = serde_json::json!({
+        let mut info = serde_json::json!({
             "version": crate::APP_VERSION, "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
             "ipcPort": self.ipc_port(),
         });
+        if let Some(session) = crate::platform::desktop_session() {
+            info["desktop"] = session;
+        }
         zip.start_file("system.json", opts)?;
         zip.write_all(serde_json::to_string_pretty(&info)?.as_bytes())?;
         if let Ok(dir) = std::fs::read_dir(self.0.data_dir.join("logs")) {

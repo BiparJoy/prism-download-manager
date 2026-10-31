@@ -18,6 +18,7 @@ import fr from "../locales/fr.json";
 import id from "../locales/id.json";
 import it from "../locales/it.json";
 import turkish from "../locales/tr.json";
+import zh from "../locales/zh.json";
 
 export type PluralEntry = Partial<Record<Intl.LDMLPluralRule, string>>;
 export type Catalog = Record<string, string | PluralEntry>;
@@ -32,12 +33,13 @@ export const LANGUAGES = [
   { code: "id", name: "Bahasa Indonesia" },
   { code: "it", name: "Italiano" },
   { code: "tr", name: "Türkçe" },
+  { code: "zh", name: "简体中文" },
   { code: "ar", name: "العربية" },
 ] as const;
 
 export type Language = (typeof LANGUAGES)[number]["code"];
 
-export const CATALOGS: Record<Language, Catalog> = { en, cs, de, es, fr, id, it, tr: turkish, ar };
+export const CATALOGS: Record<Language, Catalog> = { en, cs, de, es, fr, id, it, tr: turkish, zh, ar };
 
 /** Languages written right to left: the whole layout mirrors (`<html dir="rtl">`). */
 const RTL: readonly Language[] = ["ar"];
@@ -50,6 +52,10 @@ export function resolveLanguage(setting: string | undefined, preferred: readonly
   const known = (code: string) => LANGUAGES.find((l) => l.code === code.toLowerCase().split(/[-_]/)[0])?.code;
   if (setting) return known(setting) ?? "en";
   for (const p of preferred) {
+    // Prism has Simplified Chinese only: a system in Traditional Chinese (Taiwan, Hong Kong,
+    // Macau) goes on to its next language rather than switch script; Chinese can be picked in
+    // Settings.
+    if (/^zh[-_](hant|tw|hk|mo)\b/i.test(p)) continue;
     const k = known(p);
     if (k) return k;
   }

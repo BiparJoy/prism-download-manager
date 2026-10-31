@@ -246,9 +246,41 @@ impl Core {
         // Only now does the queue count as busy: the scheduler's tick could otherwise see it
         // busy with nothing queued yet, report it finished at once and leave its downloads
         // queued in a stopped queue.
-        self.0.state.lock().queue_was_busy.insert(id.to_string());
+        let has_work = {
+            let mut st = self.0.state.lock();
+            let has_work = st.items.values().any(|i| {
+                i.queue_id.as_deref() == Some(id)
+                    && !i.trashed
+                    && (i.status == Status::Queued
+                        || i.status.is_active()
+                        || st.jobs.contains_key(&i.id))
+            });
+            if has_work {
+                st.queue_was_busy.insert(id.to_string());
+            } else if let Some(q) = st.queues.iter_mut().find(|q| q.id == id) {
+                q.running = false;
+            }
+            has_work
+        };
         self.save_queues();
-        self.admit();
+        if has_work {
+            self.admit();
+        } else {
+            self.nothing_to_run(id);
+        }
+    }
+
+    /// A queue started with nothing to download (#41): it says so and stops, without its "when
+    /// finished" action — "Run now" on an empty queue put the computer to sleep at once.
+    fn nothing_to_run(&self, id: &str) {
+        let Some(q) = self.queues().into_iter().find(|q| q.id == id) else {
+            return;
+        };
+        tracing::info!(queue = %q.id, "queue has nothing to download");
+        self.emit(CoreEvent::QueueFinished {
+            queue_id: q.id,
+            name: q.name,
+        });
     }
 
     pub fn stop_queue(&self, id: &str) {

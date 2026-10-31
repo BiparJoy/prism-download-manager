@@ -156,6 +156,10 @@ export function Sidebar() {
         <Section title={t("Tools")} />
         <ToolItem icon="convert" label={t("Convert")} tab="convert" />
         <ToolItem icon="shrink" label={t("Make smaller")} tab="shrink" />
+        <button type="button" className="side-item" title={t("Download a model from Hugging Face")} onClick={() => void attempt(api.openWindow("model"))}>
+          <Icon name="model" size={16} />
+          <span className="side-item__label">{t("AI models")}</span>
+        </button>
 
         <Section title={t("Grabber")} onAdd={() => ui().openSheet({ kind: "grabber", projectId: null })} addLabel={t("New grabber project")} />
         {projects.map((p) => (

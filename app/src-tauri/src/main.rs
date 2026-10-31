@@ -21,14 +21,21 @@ pub(crate) static QUITTING: AtomicBool = AtomicBool::new(false);
 pub(crate) static STARTED_IN_BACKGROUND: AtomicBool = AtomicBool::new(false);
 
 fn main() {
+    // Linux: WebKitGTK picks its renderer itself (#36, #41, #44). Prism 1.1.8–1.2.2 forced the
+    // previous one (WEBKIT_DISABLE_DMABUF_RENDERER=1) for less memory, which left windows empty,
+    // half drawn or no longer redrawn on KDE Plasma (Intel), Hyprland (AMD) and XWayland. A
+    // WEBKIT_DISABLE_DMABUF_RENDERER set by the user still applies, as for any WebKitGTK app.
     limit_malloc_arenas();
-    choose_webkit_renderer();
     let args: Vec<String> = std::env::args().collect();
     let background = args
         .iter()
         .any(|a| a == "--background" || a == "--minimized");
     STARTED_IN_BACKGROUND.store(background, std::sync::atomic::Ordering::Relaxed);
     let _log_guard = init_logging();
+    match prism_core::platform::desktop_session() {
+        Some(session) => tracing::info!(%session, "Prism {} starting", prism_core::APP_VERSION),
+        None => tracing::info!("Prism {} starting", prism_core::APP_VERSION),
+    }
     // Release builds have no console: make sure a panic always reaches the log file.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -462,18 +469,6 @@ fn limit_malloc_arenas() {
     // SAFETY: mallopt only changes an allocator setting; it runs before any thread starts.
     unsafe {
         libc::mallopt(libc::M_ARENA_MAX, 2);
-    }
-}
-
-/// Linux (#36, #40; before them #18 and #30): WebKitGTK's DMA-BUF renderer leaves windows empty on
-/// KDE Plasma (also when one comes back from the taskbar) and holds on to memory. Prism uses
-/// WebKit's previous renderer, unless WEBKIT_DISABLE_DMABUF_RENDERER is set already
-/// (`WEBKIT_DISABLE_DMABUF_RENDERER=0` brings the DMA-BUF renderer back).
-fn choose_webkit_renderer() {
-    #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        // SAFETY: the first thing main does, before any other thread exists.
-        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }
 }
 

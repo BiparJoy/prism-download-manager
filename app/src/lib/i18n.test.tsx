@@ -74,6 +74,14 @@ describe("t()", () => {
     expect(resolveLanguage("", ["cs"])).toBe("cs");
     expect(resolveLanguage("", ["ja-JP"])).toBe("en");
     expect(resolveLanguage("xx", ["cs"])).toBe("en");
+    // Simplified Chinese for a Simplified (or plain) Chinese system, not for Traditional.
+    expect(resolveLanguage("", ["zh-CN"])).toBe("zh");
+    expect(resolveLanguage("", ["zh"])).toBe("zh");
+    expect(resolveLanguage("", ["zh-Hans-HK"])).toBe("zh");
+    expect(resolveLanguage("", ["zh-TW", "en"])).toBe("en");
+    expect(resolveLanguage("", ["zh-Hant-HK", "ja"])).toBe("en");
+    expect(resolveLanguage("", ["zh_HK"])).toBe("en");
+    expect(resolveLanguage("zh", ["zh-TW"])).toBe("zh");
   });
 
   it("falls back to the English text and fills placeholders", () => {

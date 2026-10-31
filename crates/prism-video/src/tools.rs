@@ -298,6 +298,15 @@ type VersionKey = (Option<SystemTime>, u64, String);
 pub(crate) struct VersionCache(std::sync::Mutex<HashMap<PathBuf, VersionKey>>);
 
 impl VersionCache {
+    /// The version found earlier for this file, if it hasn't changed since.
+    pub fn known(&self, path: &Path) -> Option<String> {
+        let meta = std::fs::metadata(path).ok()?;
+        let key = (meta.modified().ok(), meta.len());
+        let map = self.0.lock().ok()?;
+        let (m, l, v) = map.get(path)?;
+        ((*m, *l) == key).then(|| v.clone())
+    }
+
     pub async fn version(&self, tool: Tool, path: &Path) -> Option<String> {
         let meta = std::fs::metadata(path).ok()?;
         let key = (meta.modified().ok(), meta.len());
@@ -322,6 +331,28 @@ impl VersionCache {
         }
         Some(v)
     }
+}
+
+/// The first yt-dlp with `--js-runtimes` (and the external JavaScript runtime YouTube has
+/// needed since).
+pub const JS_RUNTIMES_SINCE: &str = "2025.11.12";
+
+/// Whether a yt-dlp of this version knows `--js-runtimes`. An older one, like a Linux
+/// distribution's package, stops on that option (#43). An unknown version counts as yes.
+pub fn version_knows_js_runtimes(version: Option<&str>) -> bool {
+    let Some(v) = version.map(str::trim) else {
+        return true;
+    };
+    let date = v.get(..10).unwrap_or("");
+    let is_date = date.len() == 10
+        && date.bytes().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                b == b'.'
+            } else {
+                b.is_ascii_digit()
+            }
+        });
+    !is_date || date >= JS_RUNTIMES_SINCE
 }
 
 pub(crate) async fn tool_info(
@@ -1315,6 +1346,26 @@ pub(crate) async fn install_ffmpeg(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ytdlp_versions_with_and_without_js_runtimes() {
+        // #43: Debian/Ubuntu ship yt-dlp releases from before the option existed.
+        for old in ["2024.04.09", "2025.09.26", "2025.11.03.212345"] {
+            assert!(!version_knows_js_runtimes(Some(old)), "{old}");
+        }
+        for new in [
+            "2025.11.12",
+            "2025.11.12.234401",
+            "2026.10.29",
+            " 2026.01.01\n",
+        ] {
+            assert!(version_knows_js_runtimes(Some(new)), "{new}");
+        }
+        // Unknown or odd versions change nothing.
+        assert!(version_knows_js_runtimes(None));
+        assert!(version_knows_js_runtimes(Some("master")));
+    }
+
     use super::*;
     use std::io::Write;
 

@@ -282,6 +282,39 @@ async fn queue_respects_concurrency_and_finishes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_empty_queue_run_does_not_run_its_finish_action() {
+    // #41: "Run now" on a queue with nothing to download put the computer to sleep at once.
+    // (The finish action here is the queue sound, so a failure only plays a sound.)
+    let tmp = tempfile::tempdir().unwrap();
+    let core = core_in(tmp.path()).await;
+    let mut queue: Queue = core.queues().into_iter().find(|q| q.id == "main").unwrap();
+    queue.schedule.on_complete = prism_core::model::PostAction::Sound;
+    core.upsert_queue(queue).unwrap();
+    let mut rx = core.subscribe();
+    core.start_queue("main");
+    let mut finished = false;
+    let mut finish_action = false;
+    let _ = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            match rx.recv().await {
+                Ok(CoreEvent::QueueFinished { queue_id, .. }) if queue_id == "main" => {
+                    finished = true
+                }
+                Ok(CoreEvent::PostActionPending { .. }) => finish_action = true,
+                Ok(CoreEvent::PlaySound { kind }) if kind == "queue" => finish_action = true,
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => break,
+            }
+        }
+    })
+    .await;
+    assert!(finished, "the queue says it has nothing to download");
+    assert!(!finish_action, "the finish action ran for an empty queue");
+    let main = core.queues().into_iter().find(|q| q.id == "main").unwrap();
+    assert!(!main.running);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn browser_messages_follow_protocol() {
     let server = TestServer::start(ServerConfig::default()).await.unwrap();
     let tmp = tempfile::tempdir().unwrap();

@@ -31,7 +31,8 @@
 :root {
   /* ---- Typography ------------------------------------------------------ */
   --font-sans: "Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI",
-    system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    system-ui, -apple-system, "Helvetica Neue", Arial, "Microsoft YaHei UI", "Microsoft YaHei",
+    "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono",
     ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 

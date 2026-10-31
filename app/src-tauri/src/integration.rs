@@ -136,9 +136,23 @@ pub fn open_browser(browser: &str) -> Result<(), String> {
 /// Prism's extension in the Chrome Web Store (Chrome, Edge, Brave, Opera, Vivaldi, Chromium).
 pub const EXTENSION_STORE_URL: &str = "https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl";
 
-/// Opens the extension's Chrome Web Store page in `browser`.
+/// Prism's add-on in Firefox Add-ons (Firefox, Zen).
+pub const FIREFOX_ADDON_URL: &str =
+    "https://addons.mozilla.org/firefox/addon/prism-download-manager/";
+
+/// Where `browser` gets Prism's extension: Firefox Add-ons for Firefox and Zen, else the Chrome
+/// Web Store.
+pub fn store_url(browser: &str) -> &'static str {
+    if matches!(browser, "firefox" | "zen") {
+        FIREFOX_ADDON_URL
+    } else {
+        EXTENSION_STORE_URL
+    }
+}
+
+/// Opens the extension's store page in `browser`.
 pub fn open_extension_store(browser: &str) -> Result<(), String> {
-    launch(browser, Some(EXTENSION_STORE_URL))
+    launch(browser, Some(store_url(browser)))
         .map_err(|e| format!("Could not start the browser: {e}"))
 }
 
@@ -280,9 +294,20 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()>
 
 #[cfg(test)]
 mod tests {
-    use super::sync_dir;
+    use super::{EXTENSION_STORE_URL, FIREFOX_ADDON_URL, store_url, sync_dir};
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn firefox_and_zen_get_firefox_add_ons() {
+        assert_eq!(store_url("firefox"), FIREFOX_ADDON_URL);
+        assert_eq!(store_url("zen"), FIREFOX_ADDON_URL);
+        for b in [
+            "chrome", "edge", "brave", "opera", "vivaldi", "helium", "chromium",
+        ] {
+            assert_eq!(store_url(b), EXTENSION_STORE_URL, "{b}");
+        }
+    }
 
     fn write_build(dir: &Path, version: &str, icon: &str) {
         fs::create_dir_all(dir.join("icons")).unwrap();

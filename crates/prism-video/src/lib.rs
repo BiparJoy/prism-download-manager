@@ -120,12 +120,49 @@ impl VideoService {
     fn tool_paths(&self) -> ToolPaths {
         let o = self.options();
         let r = |t| tools::resolve(t, &self.inner.tools_dir, &o).0;
+        let ytdlp = r(Tool::YtDlp);
+        // A yt-dlp older than `--js-runtimes` (#43) gets no JavaScript runtime: it would stop on
+        // the option, and it can still download from other sites.
+        let old = ytdlp.as_deref().is_some_and(|y| {
+            !tools::version_knows_js_runtimes(self.inner.versions.known(y).as_deref())
+        });
         ToolPaths {
-            ytdlp: r(Tool::YtDlp),
+            ytdlp,
             ffmpeg: r(Tool::Ffmpeg),
             ffprobe: r(Tool::Ffprobe),
-            deno: r(Tool::Deno),
+            deno: r(Tool::Deno).filter(|_| !old),
         }
+    }
+
+    /// Whether this yt-dlp knows `--js-runtimes`, by its version (#43).
+    async fn ytdlp_knows_js_runtimes(&self, ytdlp: &Path) -> bool {
+        let v = self.inner.versions.version(Tool::YtDlp, ytdlp).await;
+        tools::version_knows_js_runtimes(v.as_deref())
+    }
+
+    /// Finds out the version of a yt-dlp that isn't Prism's own (Prism's is always current), so
+    /// that an old one gets no `--js-runtimes` (see [`Self::tool_paths`]). Asked once per file.
+    async fn learn_ytdlp_version(&self) {
+        let (path, source, _) = tools::resolve(Tool::YtDlp, &self.inner.tools_dir, &self.options());
+        if let Some(p) = path.filter(|_| source != ToolSource::Managed) {
+            self.inner.versions.version(Tool::YtDlp, &p).await;
+        }
+    }
+
+    /// Whether [`Self::ensure_tools`] has something to install: yt-dlp or deno missing, or a
+    /// yt-dlp from the system too old for YouTube (#43: a distribution's package without
+    /// `--js-runtimes`).
+    pub async fn needs_tools(&self) -> bool {
+        let o = self.options();
+        let d = &self.inner.tools_dir;
+        match tools::resolve(Tool::YtDlp, d, &o) {
+            (None, ..) => return true,
+            (Some(p), ToolSource::System, _) if !self.ytdlp_knows_js_runtimes(&p).await => {
+                return true;
+            }
+            _ => {}
+        }
+        tools::resolve(Tool::Deno, d, &o).0.is_none()
     }
 
     fn require(&self, tool: Tool) -> Result<PathBuf> {
@@ -171,9 +208,14 @@ impl VideoService {
         let http = self.http()?;
         let mut errors = Vec::new();
 
-        if tools::resolve(Tool::YtDlp, &d, &o).0.is_none()
-            && let Err(e) = tools::install_ytdlp(&http, &d, o.channel, &progress).await
-        {
+        // Prism's own yt-dlp when there is none, or when the system's is too old for YouTube
+        // (it then takes the system's place).
+        let need_ytdlp = match tools::resolve(Tool::YtDlp, &d, &o) {
+            (None, ..) => true,
+            (Some(p), ToolSource::System, _) => !self.ytdlp_knows_js_runtimes(&p).await,
+            _ => false,
+        };
+        if need_ytdlp && let Err(e) = tools::install_ytdlp(&http, &d, o.channel, &progress).await {
             errors.push(format!("yt-dlp: {e}"));
         }
         if tools::resolve(Tool::Deno, &d, &o).0.is_none()
@@ -307,6 +349,7 @@ impl VideoService {
         opts: &VideoOptions,
     ) -> Result<Probe> {
         let ytdlp = self.require(Tool::YtDlp)?;
+        self.learn_ytdlp_version().await;
         let mut target = url.to_string();
         for _ in 0..2 {
             let cookie_file = probe::write_cookie_file(&target, ctx)?;
@@ -462,6 +505,7 @@ impl VideoService {
         opts: &VideoOptions,
     ) -> Result<PathBuf> {
         let ytdlp = self.require(Tool::YtDlp)?;
+        self.learn_ytdlp_version().await;
         if !job.output_dir.as_os_str().is_empty() {
             tokio::fs::create_dir_all(&job.output_dir).await?;
         }

@@ -867,20 +867,9 @@ impl VideoJob {
 
         // Tools first (downloads yt-dlp/deno on first use).
         self.set(|s| s.detail = Some("Preparing yt-dlp".into()));
-        let status = video.tool_status().await;
-        if status.yt_dlp.path.is_none() || status.deno.path.is_none() {
-            let c = core.clone();
-            video
-                .ensure_tools(move |p| {
-                    c.emit(CoreEvent::ToolsProgress {
-                        tool: format!("{:?}", p.tool).to_lowercase(),
-                        downloaded: p.downloaded,
-                        total: p.total,
-                    })
-                })
-                .await
-                .context("installing yt-dlp")?;
-        }
+        prepare_video_tools(core)
+            .await
+            .context("installing yt-dlp")?;
         if self.cancel.is_cancelled() {
             return Err(anyhow!("stopped"));
         }
@@ -1150,6 +1139,34 @@ impl VideoJob {
             }
         });
     }
+}
+
+/// Installs yt-dlp and deno on first use, and Prism's own yt-dlp when the system's is too old for
+/// YouTube (#43). Offline, an old yt-dlp still works for other sites, so only a tool that is
+/// still missing is an error.
+async fn prepare_video_tools(core: &Core) -> Result<()> {
+    let video = &core.0.video;
+    if !video.needs_tools().await {
+        return Ok(());
+    }
+    let c = core.clone();
+    let installed = video
+        .ensure_tools(move |p| {
+            c.emit(CoreEvent::ToolsProgress {
+                tool: format!("{:?}", p.tool).to_lowercase(),
+                downloaded: p.downloaded,
+                total: p.total,
+            })
+        })
+        .await;
+    if let Err(e) = installed {
+        let status = video.tool_status().await;
+        if status.yt_dlp.path.is_none() || status.deno.path.is_none() {
+            return Err(anyhow!("{e}"));
+        }
+        tracing::warn!("{e}; using the yt-dlp that is there");
+    }
+    Ok(())
 }
 
 /// A part's piece of one stream: the bytes around the part, and the stream's header that makes
@@ -1600,20 +1617,7 @@ async fn run_probe_video(
     ctx: RequestContext,
 ) -> Result<serde_json::Value> {
     let video = &core.0.video;
-    let status = video.tool_status().await;
-    if status.yt_dlp.path.is_none() || status.deno.path.is_none() {
-        let c = core.clone();
-        video
-            .ensure_tools(move |p| {
-                c.emit(CoreEvent::ToolsProgress {
-                    tool: format!("{:?}", p.tool).to_lowercase(),
-                    downloaded: p.downloaded,
-                    total: p.total,
-                })
-            })
-            .await
-            .map_err(|e| anyhow!("{e}"))?;
-    }
+    prepare_video_tools(core).await?;
     let probe = match video
         .probe(page_url, &ctx)
         .await

@@ -168,7 +168,7 @@
           "name": "Which browsers does it work with?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Chrome, Microsoft Edge, Brave, Opera, Vivaldi and Helium from the Chrome Web Store, and Firefox and Zen from prism-firefox.zip. Safari isn’t supported."
+            "text": "Chrome, Microsoft Edge, Brave, Opera, Vivaldi and Helium from the Chrome Web Store, and Firefox and Zen from Firefox Add-ons. Safari isn’t supported."
           }
         },
         {
@@ -176,7 +176,7 @@
           "name": "Is Prism in Firefox Add-ons?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Not yet. Until it is, load prism-firefox.zip by hand: regular Firefox keeps it until it restarts, while Firefox Developer Edition, Nightly and ESR can keep it permanently."
+            "text": "Yes: Prism Download Manager in Firefox Add-ons, for Firefox 140 or later and Zen. Firefox keeps it up to date."
           }
         },
         {
@@ -382,7 +382,7 @@
         <h3 class="h3">Step by step</h3>
         <ol class="steps">
           <li><div><h4>Install the Prism app</h4><p>Free for <a href="/windows/">Windows</a>, <a href="/mac/">macOS</a> and <a href="/linux/">Linux</a>, or pick your file from the <a href="/#download">download section</a>.</p></div></li>
-          <li><div><h4>Add the extension to your browser</h4><p>From the <a href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl" rel="noopener">Chrome Web Store</a>, or for Firefox from a zip — see the table.</p></div></li>
+          <li><div><h4>Add the extension to your browser</h4><p>From the <a href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl" rel="noopener">Chrome Web Store</a>, or for Firefox from <a href="https://addons.mozilla.org/firefox/addon/prism-download-manager/" rel="noopener">Firefox Add-ons</a> — see the table.</p></div></li>
           <li><div><h4>Pin the Prism icon and check it says <strong>Connected</strong></h4><p>Then click any download link to try it.</p></div></li>
         </ol>
       </div>
@@ -396,7 +396,7 @@
             <tr><td>Brave, Vivaldi</td><td>Chrome Web Store → <strong>Add to Brave</strong> / <strong>Add to Chrome</strong>.</td></tr>
             <tr><td>Opera</td><td>Add Opera’s free <em>Install Chrome Extensions</em> add-on, then use the Chrome Web Store.</td></tr>
             <tr><td>Helium</td><td>The Chrome Web Store’s add button (Helium installs store extensions through its own proxy).</td></tr>
-            <tr><td>Firefox, Zen</td><td><code>prism-firefox.zip</code> from the release. Prism isn’t in Firefox Add-ons yet: regular Firefox keeps it until restart, Developer Edition, Nightly and ESR for good. <a href="/#guide-extension">Guide</a>.</td></tr>
+            <tr><td>Firefox, Zen</td><td><a href="https://addons.mozilla.org/firefox/addon/prism-download-manager/" rel="noopener">Firefox Add-ons</a> → <strong>Add to Firefox</strong> (Firefox 140 or later). Older versions can load <code>prism-firefox.zip</code> from the release as a temporary add-on. <a href="/#guide-extension">Guide</a>.</td></tr>
             <tr><td>Safari</td><td>Not supported.</td></tr>
           </tbody>
         </table>
@@ -436,9 +436,9 @@
       <details class="acc" open><summary>Does the extension work without the Prism app?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>No. The extension hands downloads to the Prism app on your computer, which does the downloading. Without the app running, the browser keeps its downloads as usual. Both are free.</p></div></details>
       <details class="acc"><summary>Which browsers does it work with?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Chrome, Microsoft Edge, Brave, Opera, Vivaldi and Helium from the Chrome Web Store, and Firefox and Zen from <code>prism-firefox.zip</code>. Safari isn’t supported.</p></div></details>
+        <div class="acc-body"><p>Chrome, Microsoft Edge, Brave, Opera, Vivaldi and Helium from the Chrome Web Store, and Firefox and Zen from Firefox Add-ons. Safari isn’t supported.</p></div></details>
       <details class="acc"><summary>Is Prism in Firefox Add-ons?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
-        <div class="acc-body"><p>Not yet. Until it is, load <code>prism-firefox.zip</code> by hand: regular Firefox keeps it until it restarts, while Firefox Developer Edition, Nightly and ESR can keep it permanently.</p></div></details>
+        <div class="acc-body"><p>Yes: <a href="https://addons.mozilla.org/firefox/addon/prism-download-manager/" rel="noopener">Prism Download Manager in Firefox Add-ons</a>, for Firefox 140 or later and Zen. Firefox keeps it up to date.</p></div></details>
       <details class="acc"><summary>Why does the popup say “Not connected”?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
         <div class="acc-body"><p>Start Prism (it lives in the tray), then click <strong>Retry</strong> in the popup. Still failing? Open Prism → Settings → Browser integration → <strong>Repair</strong>, then restart the browser. Browsers installed as a Flatpak on Linux can’t talk to desktop apps at all.</p></div></details>
       <details class="acc"><summary>Can I keep IDM’s or another download manager’s extension?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary>
